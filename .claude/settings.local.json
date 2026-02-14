@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python main.py:*)",
+      "Bash(timeout:*)",
+      "Bash(python:*)",
+      "Bash(start http://localhost:8000)",
+      "Bash(curl:*)",
+      "Bash(del \"C:\\\\Users\\\\nthin\\\\PycharmProjects\\\\USDC\\\\trades.db\")"
+    ]
+  }
+}
