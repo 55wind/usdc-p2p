@@ -280,7 +280,20 @@ function copyText(text) {
 
 async function confirmUsdc() {
     try {
+        const btn = document.querySelector('#actions .btn-primary');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'USDC 전송 확인 중...';
+        }
         await api('POST', `/trades/${currentTrade.id}/confirm-usdc`);
+        const el = document.getElementById('actions');
+        el.innerHTML = `
+            <div class="alert alert-info">
+                블록체인에서 USDC 전송을 확인하고 있습니다.<br>
+                전송이 감지되면 자동으로 다음 단계로 진행됩니다.
+            </div>
+            <div class="loading-spinner"></div>
+        `;
     } catch (err) {
         alert(err.message);
     }
