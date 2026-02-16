@@ -57,8 +57,8 @@ async def _monitor_transfer(
                 continue
 
             # Get Transfer events
-            events = contract.events.Transfer().get_logs(
-                from_block=start_block, to_block=current_block,
+            events = contract.events.Transfer.get_logs(
+                fromBlock=start_block, toBlock=current_block,
                 argument_filters={"from": seller_addr, "to": buyer_addr},
             )
 
