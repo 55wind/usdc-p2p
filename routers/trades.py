@@ -71,24 +71,3 @@ async def join_trade(trade_id: str, body: TradeJoin, db=Depends(get_db)):
     return TradeResponse(**trade)
 
 
-@router.post("/{trade_id}/confirm-fiat", response_model=TradeResponse)
-async def confirm_fiat(trade_id: str, db=Depends(get_db)):
-    """Buyer confirms they have sent KRW to seller's bank account."""
-    rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-    if not rows:
-        raise HTTPException(404, "Trade not found")
-    trade = row_to_dict(rows[0])
-    if trade["status"] != "usdc_escrowed":
-        raise HTTPException(400, "Trade is not in usdc_escrowed status")
-
-    now = datetime.now(timezone.utc).isoformat()
-    await db.execute(
-        """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ? WHERE id = ?""",
-        (now, trade_id),
-    )
-    await db.commit()
-
-    rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-    trade = row_to_dict(rows[0])
-    await notify_trade_update(trade_id, trade)
-    return TradeResponse(**trade)

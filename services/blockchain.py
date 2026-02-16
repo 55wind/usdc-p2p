@@ -60,8 +60,11 @@ async def run_escrow_monitor():
             from_block = last_block + 1
             to_block = min(current_block, from_block + MAX_BLOCK_RANGE)
 
-            # Fetch all three event types
+            # Fetch all event types
             deposited_events = contract.events.Deposited.get_logs(
+                fromBlock=from_block, toBlock=to_block
+            )
+            fiat_confirmed_events = contract.events.FiatConfirmed.get_logs(
                 fromBlock=from_block, toBlock=to_block
             )
             released_events = contract.events.Released.get_logs(
@@ -70,15 +73,24 @@ async def run_escrow_monitor():
             refunded_events = contract.events.Refunded.get_logs(
                 fromBlock=from_block, toBlock=to_block
             )
+            buyer_claimed_events = contract.events.BuyerClaimed.get_logs(
+                fromBlock=from_block, toBlock=to_block
+            )
 
             for event in deposited_events:
                 await _handle_deposited(event)
+
+            for event in fiat_confirmed_events:
+                await _handle_fiat_confirmed(event)
 
             for event in released_events:
                 await _handle_released(event)
 
             for event in refunded_events:
                 await _handle_refunded(event)
+
+            for event in buyer_claimed_events:
+                await _handle_buyer_claimed(event)
 
             last_block = to_block
 
@@ -116,6 +128,41 @@ async def _handle_deposited(event):
             """UPDATE trades SET status = 'usdc_escrowed', escrow_tx_hash = ?, escrowed_at = ?,
                expires_at = ? WHERE id = ?""",
             (tx_hash, now, (datetime.now(timezone.utc) + timedelta(minutes=60)).isoformat(), trade_id),
+        )
+        await db.commit()
+
+        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
+        trade = dict(rows[0])
+
+    await notify_trade_update(trade_id, trade)
+
+
+async def _handle_fiat_confirmed(event):
+    """Handle FiatConfirmed event: update trade status to fiat_sent."""
+    from services.escrow import notify_trade_update
+
+    trade_id_bytes = event["args"]["tradeId"]
+    trade_id = bytes32_to_uuid(trade_id_bytes)
+
+    logger.info(f"[{trade_id[:8]}] FiatConfirmed event detected")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
+        if not rows:
+            logger.warning(f"[{trade_id[:8]}] Trade not found for FiatConfirmed event")
+            return
+
+        trade = dict(rows[0])
+        if trade["status"] != "usdc_escrowed":
+            logger.warning(f"[{trade_id[:8]}] Ignoring FiatConfirmed event, status={trade['status']}")
+            return
+
+        await db.execute(
+            """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ?, expires_at = NULL WHERE id = ?""",
+            (now, trade_id),
         )
         await db.commit()
 
@@ -178,6 +225,38 @@ async def _handle_refunded(event):
 
         await db.execute(
             """UPDATE trades SET status = 'refunded', release_tx_hash = ?, completed_at = ?,
+               expires_at = NULL WHERE id = ?""",
+            (tx_hash, now, trade_id),
+        )
+        await db.commit()
+
+        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
+        trade = dict(rows[0])
+
+    await notify_trade_update(trade_id, trade)
+
+
+async def _handle_buyer_claimed(event):
+    """Handle BuyerClaimed event: buyer auto-claimed USDC after seller timeout."""
+    from services.escrow import notify_trade_update
+
+    trade_id_bytes = event["args"]["tradeId"]
+    trade_id = bytes32_to_uuid(trade_id_bytes)
+    tx_hash = event["transactionHash"].hex()
+
+    logger.info(f"[{trade_id[:8]}] BuyerClaimed event detected, tx={tx_hash}")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
+        if not rows:
+            logger.warning(f"[{trade_id[:8]}] Trade not found for BuyerClaimed event")
+            return
+
+        await db.execute(
+            """UPDATE trades SET status = 'completed', release_tx_hash = ?, completed_at = ?,
                expires_at = NULL WHERE id = ?""",
             (tx_hash, now, trade_id),
         )

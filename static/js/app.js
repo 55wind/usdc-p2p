@@ -3,12 +3,12 @@ let currentRole = null; // 'seller' or 'buyer'
 let ws = null;
 let countdownInterval = null;
 
-// Contract addresses (will be loaded from config)
+// Contract addresses
 const USDC_ADDRESS = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359';
 const POLYGON_CHAIN_ID = '0x89'; // 137
 
-// Escrow contract address — injected or set manually
-let ESCROW_ADDRESS = '0xe285ec3Fab8042Ea7abfB5d3965fE021061bBa14';
+// Escrow contract address
+let ESCROW_ADDRESS = '0xC4aa00e5DFe7F88D6EE26917463e3CaeA29955e6';
 
 // Minimal ABIs for MetaMask interactions
 const ERC20_ABI = [
@@ -18,11 +18,15 @@ const ERC20_ABI = [
 
 const ESCROW_ABI = [
     'function deposit(bytes32 tradeId, address buyer, uint256 amount)',
+    'function confirmFiat(bytes32 tradeId)',
     'function release(bytes32 tradeId)',
     'function refund(bytes32 tradeId)',
+    'function claimByBuyer(bytes32 tradeId)',
     'event Deposited(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount)',
+    'event FiatConfirmed(bytes32 indexed tradeId, address indexed buyer)',
     'event Released(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount)',
-    'event Refunded(bytes32 indexed tradeId, address indexed seller, uint256 amount)'
+    'event Refunded(bytes32 indexed tradeId, address indexed seller, uint256 amount)',
+    'event BuyerClaimed(bytes32 indexed tradeId, address indexed buyer, uint256 amount)'
 ];
 
 const USDC_DECIMALS = 6;
@@ -335,6 +339,47 @@ async function depositToEscrow() {
     }
 }
 
+async function confirmFiatOnChain() {
+    if (!confirm('판매자 계좌로 KRW를 송금하셨나요? 온체인에서 확인하면 판매자가 환불할 수 없습니다.')) return;
+    try {
+        const account = await connectMetaMask();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        const escrowAddr = ESCROW_ADDRESS;
+        if (!escrowAddr) {
+            alert('에스크로 컨트랙트 주소가 설정되지 않았습니다.');
+            return;
+        }
+
+        const btn = document.querySelector('#actions .btn-primary');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '입금 확인 중... (MetaMask 확인)';
+        }
+
+        const escrowContract = new ethers.Contract(escrowAddr, ESCROW_ABI, signer);
+        const tradeIdBytes32 = uuidToBytes32(currentTrade.id);
+        const tx = await escrowContract.confirmFiat(tradeIdBytes32);
+
+        if (btn) btn.textContent = '트랜잭션 확인 대기 중...';
+        await tx.wait();
+
+        const el = document.getElementById('actions');
+        el.innerHTML = `
+            <div class="alert alert-success">
+                입금 확인이 온체인에 기록되었습니다!<br>
+                판매자가 USDC를 전송할 때까지 기다려주세요...<br>
+                <small>판매자가 24시간 내 응답하지 않으면 직접 USDC를 회수할 수 있습니다.</small>
+            </div>
+            <div class="loading-spinner"></div>
+        `;
+    } catch (err) {
+        alert('입금 확인 실패: ' + (err.reason || err.message));
+        if (currentTrade) renderActions(currentTrade);
+    }
+}
+
 async function releaseFromEscrow() {
     if (!confirm('KRW 입금을 확인하셨나요? USDC를 구매자에게 전송합니다.')) return;
     try {
@@ -415,14 +460,43 @@ async function refundFromEscrow() {
     }
 }
 
-async function confirmFiat() {
-    if (!confirm('판매자 계좌로 KRW를 송금하셨나요?')) return;
+async function claimByBuyer() {
+    if (!confirm('판매자가 24시간 이상 응답하지 않아 USDC를 직접 회수합니다.')) return;
     try {
-        const trade = await api('POST', `/trades/${currentTrade.id}/confirm-fiat`);
-        currentTrade = trade;
-        updateTradeUI(trade);
+        const account = await connectMetaMask();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        const escrowAddr = ESCROW_ADDRESS;
+        if (!escrowAddr) {
+            alert('에스크로 컨트랙트 주소가 설정되지 않았습니다.');
+            return;
+        }
+
+        const btn = document.querySelector('#actions .btn-primary');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'USDC 회수 중... (MetaMask 확인)';
+        }
+
+        const escrowContract = new ethers.Contract(escrowAddr, ESCROW_ABI, signer);
+        const tradeIdBytes32 = uuidToBytes32(currentTrade.id);
+        const tx = await escrowContract.claimByBuyer(tradeIdBytes32);
+
+        if (btn) btn.textContent = '트랜잭션 확인 대기 중...';
+        await tx.wait();
+
+        const el = document.getElementById('actions');
+        el.innerHTML = `
+            <div class="alert alert-success">
+                USDC를 회수했습니다!<br>
+                백엔드에서 확인 중입니다...
+            </div>
+            <div class="loading-spinner"></div>
+        `;
     } catch (err) {
-        alert(err.message);
+        alert('USDC 회수 실패: ' + (err.reason || err.message));
+        if (currentTrade) renderActions(currentTrade);
     }
 }
 
@@ -473,6 +547,9 @@ function renderActions(trade) {
                 <button class="btn btn-red btn-block" onclick="refundFromEscrow()" style="margin-top:12px">
                     환불 (USDC 돌려받기)
                 </button>
+                <small style="color:var(--text2);text-align:center;display:block;margin-top:4px">
+                    * 구매자가 입금 확인을 하면 환불이 불가능합니다
+                </small>
             `;
         } else if (isBuyer) {
             el.innerHTML = `
@@ -485,32 +562,41 @@ function renderActions(trade) {
                     계좌번호: <strong>${trade.bank_account}</strong><br>
                     금액: <strong>${Number(trade.total_krw).toLocaleString()} KRW</strong>
                 </div>
-                <button class="btn btn-primary btn-block" onclick="confirmFiat()">
-                    입금 완료
+                <button class="btn btn-primary btn-block" onclick="confirmFiatOnChain()">
+                    입금 완료 (MetaMask로 온체인 확인)
                 </button>
+                <small style="color:var(--text2);text-align:center;display:block;margin-top:4px">
+                    * 온체인 확인 후 판매자가 환불할 수 없으며, 24시간 미응답 시 직접 USDC를 회수할 수 있습니다
+                </small>
             `;
         }
     } else if (trade.status === 'fiat_sent') {
         if (isSeller) {
             el.innerHTML = `
                 <div class="alert alert-success">
-                    구매자가 <strong>${Number(trade.total_krw).toLocaleString()} KRW</strong>을 입금했다고 알렸습니다.<br>
+                    구매자가 <strong>${Number(trade.total_krw).toLocaleString()} KRW</strong> 입금을 온체인에서 확인했습니다.<br>
                     은행 앱에서 입금을 확인한 후 USDC를 릴리즈하세요.
                 </div>
                 <button class="btn btn-green btn-block" onclick="releaseFromEscrow()">
                     입금 확인 — MetaMask로 USDC 전송
                 </button>
-                <button class="btn btn-red btn-block" onclick="refundFromEscrow()" style="margin-top:8px">
-                    미입금 — 환불 (USDC 돌려받기)
-                </button>
+                <small style="color:var(--text2);text-align:center;display:block;margin-top:4px">
+                    * 환불 불가 — 구매자가 온체인에서 입금을 확인했습니다
+                </small>
             `;
         } else if (isBuyer) {
             el.innerHTML = `
                 <div class="alert alert-success">
-                    입금 완료를 알렸습니다.<br>
+                    입금 확인이 온체인에 기록되었습니다.<br>
                     판매자가 입금을 확인하고 USDC를 전송할 때까지 기다려주세요...
                 </div>
                 <div class="loading-spinner"></div>
+                <div class="alert alert-info" style="margin-top:12px">
+                    판매자가 24시간 내 응답하지 않으면 아래 버튼으로 USDC를 직접 회수할 수 있습니다.
+                </div>
+                <button class="btn btn-primary btn-block" onclick="claimByBuyer()">
+                    USDC 직접 회수 (24시간 경과 후)
+                </button>
             `;
         }
     } else if (trade.status === 'completed') {
@@ -556,7 +642,7 @@ function connectWebSocket(tradeId) {
 function statusLabel(s) {
     const map = {
         created: '대기중', joined: '참여됨', usdc_escrowed: 'USDC 에스크로',
-        fiat_sent: 'KRW 입금 알림', completed: '완료', refunded: '환불됨',
+        fiat_sent: 'KRW 입금 확인됨', completed: '완료', refunded: '환불됨',
         expired: '만료', cancelled: '취소'
     };
     return map[s] || s;
