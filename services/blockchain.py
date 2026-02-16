@@ -18,6 +18,7 @@ with open(ABI_PATH) as f:
     ESCROW_ABI = json.load(f)
 
 POLL_INTERVAL = 10  # seconds
+MAX_BLOCK_RANGE = 1000  # Polygon public RPC limit
 
 
 def uuid_to_bytes32(uuid_str: str) -> bytes:
@@ -57,7 +58,7 @@ async def run_escrow_monitor():
                 continue
 
             from_block = last_block + 1
-            to_block = current_block
+            to_block = min(current_block, from_block + MAX_BLOCK_RANGE)
 
             # Fetch all three event types
             deposited_events = contract.events.Deposited.get_logs(
