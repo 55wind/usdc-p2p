@@ -9,9 +9,8 @@ POLYGON_RPC_URL = os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
 # USDC contract on Polygon (native USDC)
 USDC_CONTRACT_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 
-# Toss Payments
-TOSS_SECRET_KEY = os.getenv("TOSS_SECRET_KEY", "test_sk_xxx")
-TOSS_API_URL = "https://api.tosspayments.com/v1"
+# Escrow contract
+ESCROW_CONTRACT_ADDRESS = os.getenv("ESCROW_CONTRACT_ADDRESS", "")
 
 # Trade settings
 PHASE_TIMEOUT_MINUTES = 20

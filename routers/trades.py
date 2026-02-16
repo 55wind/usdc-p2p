@@ -6,11 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from database import get_db
 from models import TradeCreate, TradeJoin, TradeResponse
-from config import PHASE_TIMEOUT_MINUTES
-from services.blockchain import start_monitoring_transfer
+from config import PHASE_TIMEOUT_MINUTES, ESCROW_CONTRACT_ADDRESS
 from services.escrow import notify_trade_update
 
 router = APIRouter(prefix="/api/trades", tags=["trades"])
+
+
+@router.get("/config")
+async def get_config():
+    return {"escrow_contract_address": ESCROW_CONTRACT_ADDRESS}
 
 
 def row_to_dict(row: aiosqlite.Row) -> dict:
@@ -24,9 +28,9 @@ async def create_trade(body: TradeCreate, db=Depends(get_db)):
     total_krw = round(body.total_krw, 0)
 
     await db.execute(
-        """INSERT INTO trades (id, seller_wallet, usdc_amount, total_krw, status, created_at)
-           VALUES (?, ?, ?, ?, 'created', ?)""",
-        (trade_id, body.seller_wallet, body.usdc_amount, total_krw, now),
+        """INSERT INTO trades (id, seller_wallet, usdc_amount, total_krw, bank_name, bank_account, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'created', ?)""",
+        (trade_id, body.seller_wallet, body.usdc_amount, total_krw, body.bank_name, body.bank_account, now),
     )
     await db.commit()
 
@@ -67,34 +71,19 @@ async def join_trade(trade_id: str, body: TradeJoin, db=Depends(get_db)):
     return TradeResponse(**trade)
 
 
-@router.post("/{trade_id}/confirm-usdc", response_model=TradeResponse)
-async def confirm_usdc(trade_id: str, db=Depends(get_db)):
+@router.post("/{trade_id}/confirm-fiat", response_model=TradeResponse)
+async def confirm_fiat(trade_id: str, db=Depends(get_db)):
+    """Buyer confirms they have sent KRW to seller's bank account."""
     rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
     if not rows:
         raise HTTPException(404, "Trade not found")
     trade = row_to_dict(rows[0])
-    if trade["status"] != "joined":
-        raise HTTPException(400, "Trade is not in joined status")
-
-    # Start background blockchain monitoring
-    await start_monitoring_transfer(
-        trade_id, trade["seller_wallet"], trade["buyer_wallet"], trade["usdc_amount"]
-    )
-    return TradeResponse(**trade)
-
-
-@router.post("/{trade_id}/release", response_model=TradeResponse)
-async def release_trade(trade_id: str, db=Depends(get_db)):
-    rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-    if not rows:
-        raise HTTPException(404, "Trade not found")
-    trade = row_to_dict(rows[0])
-    if trade["status"] != "fiat_deposited":
-        raise HTTPException(400, "Fiat has not been deposited yet")
+    if trade["status"] != "usdc_escrowed":
+        raise HTTPException(400, "Trade is not in usdc_escrowed status")
 
     now = datetime.now(timezone.utc).isoformat()
     await db.execute(
-        "UPDATE trades SET status = 'completed', completed_at = ?, expires_at = NULL WHERE id = ?",
+        """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ? WHERE id = ?""",
         (now, trade_id),
     )
     await db.commit()

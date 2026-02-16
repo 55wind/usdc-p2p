@@ -55,6 +55,31 @@
                         <label>총 금액 (KRW)</label>
                         <input type="number" id="total-krw" step="1" min="1" placeholder="135000" required>
                     </div>
+                    <div class="form-group">
+                        <label>은행</label>
+                        <select id="bank-name" required>
+                            <option value="">은행 선택</option>
+                            <option value="KB국민">KB국민은행</option>
+                            <option value="신한">신한은행</option>
+                            <option value="우리">우리은행</option>
+                            <option value="하나">하나은행</option>
+                            <option value="IBK기업">IBK기업은행</option>
+                            <option value="NH농협">NH농협은행</option>
+                            <option value="카카오뱅크">카카오뱅크</option>
+                            <option value="토스뱅크">토스뱅크</option>
+                            <option value="SC제일">SC제일은행</option>
+                            <option value="대구">대구은행</option>
+                            <option value="부산">부산은행</option>
+                            <option value="경남">경남은행</option>
+                            <option value="광주">광주은행</option>
+                            <option value="전북">전북은행</option>
+                            <option value="제주">제주은행</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>계좌번호</label>
+                        <input type="text" id="bank-account" placeholder="계좌번호 입력" required>
+                    </div>
                     <button type="submit" class="btn btn-primary btn-block">거래 생성</button>
                 </form>
             </div>
@@ -101,11 +126,14 @@
                     <div class="info-row">
                         <span>구매자 지갑</span><span id="t-buyer" class="mono">-</span>
                     </div>
-                    <div class="info-row" id="row-txhash" style="display:none">
-                        <span>TX Hash</span><span id="t-txhash" class="mono">-</span>
+                    <div class="info-row" id="row-escrow-tx" style="display:none">
+                        <span>에스크로 TX</span><span id="t-escrow-tx" class="mono">-</span>
                     </div>
-                    <div class="info-row" id="row-va" style="display:none">
-                        <span>입금 계좌</span><span id="t-va">-</span>
+                    <div class="info-row" id="row-release-tx" style="display:none">
+                        <span>릴리즈 TX</span><span id="t-release-tx" class="mono">-</span>
+                    </div>
+                    <div class="info-row" id="row-bank" style="display:none">
+                        <span>입금 계좌</span><span id="t-bank">-</span>
                     </div>
                     <div class="info-row" id="row-expires" style="display:none">
                         <span>남은 시간</span><span id="t-expires">-</span>
@@ -119,8 +147,8 @@
                 <div class="progress-steps">
                     <div class="step" id="step-created">생성됨</div>
                     <div class="step" id="step-joined">참여</div>
-                    <div class="step" id="step-usdc_sent">USDC 전송</div>
-                    <div class="step" id="step-fiat_deposited">KRW 입금</div>
+                    <div class="step" id="step-usdc_escrowed">USDC 에스크로</div>
+                    <div class="step" id="step-fiat_sent">KRW 입금</div>
                     <div class="step" id="step-completed">완료</div>
                 </div>
             </div>
@@ -142,6 +170,7 @@
         </div>
     </main>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.9.0/ethers.umd.min.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -51,7 +51,7 @@ async def run_timeout_checker():
                 db.row_factory = aiosqlite.Row
                 rows = await db.execute_fetchall(
                     """SELECT * FROM trades
-                       WHERE expires_at IS NOT NULL AND expires_at < ? AND status NOT IN ('completed', 'expired', 'cancelled')""",
+                       WHERE expires_at IS NOT NULL AND expires_at < ? AND status NOT IN ('completed', 'expired', 'cancelled', 'refunded')""",
                     (now,),
                 )
                 for row in rows:

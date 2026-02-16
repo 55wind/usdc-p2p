@@ -3,29 +3,108 @@ let currentRole = null; // 'seller' or 'buyer'
 let ws = null;
 let countdownInterval = null;
 
-// Routing
+// Contract addresses (will be loaded from config)
+const USDC_ADDRESS = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359';
+const POLYGON_CHAIN_ID = '0x89'; // 137
+
+// Escrow contract address — injected or set manually
+let ESCROW_ADDRESS = '0xe285ec3Fab8042Ea7abfB5d3965fE021061bBa14';
+
+// Minimal ABIs for MetaMask interactions
+const ERC20_ABI = [
+    'function approve(address spender, uint256 amount) returns (bool)',
+    'function allowance(address owner, address spender) view returns (uint256)'
+];
+
+const ESCROW_ABI = [
+    'function deposit(bytes32 tradeId, address buyer, uint256 amount)',
+    'function release(bytes32 tradeId)',
+    'function refund(bytes32 tradeId)',
+    'event Deposited(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount)',
+    'event Released(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount)',
+    'event Refunded(bytes32 indexed tradeId, address indexed seller, uint256 amount)'
+];
+
+const USDC_DECIMALS = 6;
+
+// ---- MetaMask helpers ----
+
+async function connectMetaMask() {
+    if (!window.ethereum) {
+        throw new Error('MetaMask가 설치되어 있지 않습니다.');
+    }
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    await switchToPolygon();
+    return accounts[0];
+}
+
+async function switchToPolygon() {
+    try {
+        await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: POLYGON_CHAIN_ID }],
+        });
+    } catch (err) {
+        if (err.code === 4902) {
+            await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                    chainId: POLYGON_CHAIN_ID,
+                    chainName: 'Polygon Mainnet',
+                    nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
+                    rpcUrls: ['https://polygon-rpc.com'],
+                    blockExplorerUrls: ['https://polygonscan.com/'],
+                }],
+            });
+        } else {
+            throw err;
+        }
+    }
+}
+
+function uuidToBytes32(uuid) {
+    const hex = uuid.replace(/-/g, '');
+    return '0x' + hex.padEnd(64, '0');
+}
+
+// ---- Escrow address loader ----
+async function loadEscrowAddress() {
+    try {
+        const resp = await fetch('/api/trades/config');
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data.escrow_contract_address) {
+                ESCROW_ADDRESS = data.escrow_contract_address;
+            }
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// ---- Routing ----
+
 function navigateTo(screen) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(`screen-${screen}`).classList.add('active');
 }
 
 // Check URL for trade ID on load
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
+    await loadEscrowAddress();
+
     const path = window.location.pathname;
     const match = path.match(/^\/trade\/([a-f0-9-]+)$/);
     if (match) {
         const tradeId = match[1];
-        // Check if we're the seller for this trade
         const savedRole = localStorage.getItem(`role_${tradeId}`);
         if (savedRole) {
             currentRole = savedRole;
         }
         loadTrade(tradeId);
     }
-
 });
 
-// API helpers
+// ---- API helpers ----
+
 async function api(method, path, body) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
@@ -37,7 +116,8 @@ async function api(method, path, body) {
     return res.json();
 }
 
-// Create trade (seller)
+// ---- Create trade (seller) ----
+
 async function createTrade(e) {
     e.preventDefault();
     try {
@@ -45,6 +125,8 @@ async function createTrade(e) {
             seller_wallet: document.getElementById('seller-wallet').value,
             usdc_amount: parseFloat(document.getElementById('usdc-amount').value),
             total_krw: parseFloat(document.getElementById('total-krw').value),
+            bank_name: document.getElementById('bank-name').value,
+            bank_account: document.getElementById('bank-account').value,
         });
         currentTrade = trade;
         currentRole = 'seller';
@@ -54,7 +136,6 @@ async function createTrade(e) {
         document.getElementById('share-url').value = url;
         navigateTo('share');
 
-        // Connect WebSocket on share screen so seller gets notified when buyer joins
         window.history.pushState({}, '', `/trade/${trade.id}`);
         connectWebSocket(trade.id);
     } catch (err) {
@@ -74,13 +155,13 @@ function goToTrade() {
     }
 }
 
-// Load trade by ID
+// ---- Load trade by ID ----
+
 async function loadTrade(tradeId) {
     try {
         const trade = await api('GET', `/trades/${tradeId}`);
         currentTrade = trade;
 
-        // If no saved role, and status is 'created', this is the buyer arriving
         if (!currentRole) {
             currentRole = 'buyer';
             localStorage.setItem(`role_${tradeId}`, 'buyer');
@@ -97,7 +178,8 @@ async function loadTrade(tradeId) {
     }
 }
 
-// Join screen (buyer)
+// ---- Join screen (buyer) ----
+
 function showJoinScreen(trade) {
     const info = document.getElementById('join-info');
     info.innerHTML = `
@@ -124,7 +206,8 @@ async function joinTrade(e) {
     }
 }
 
-// Trade status screen
+// ---- Trade status screen ----
+
 function showTradeScreen(trade) {
     currentTrade = trade;
     navigateTo('trade');
@@ -144,23 +227,33 @@ function updateTradeUI(trade) {
     badge.textContent = statusLabel(trade.status);
     badge.className = `badge badge-${trade.status}`;
 
-    // TX hash
-    const txRow = document.getElementById('row-txhash');
-    if (trade.tx_hash) {
-        txRow.style.display = 'flex';
-        document.getElementById('t-txhash').innerHTML =
-            `<a href="https://polygonscan.com/tx/${trade.tx_hash}" target="_blank" style="color:var(--accent)">${trade.tx_hash.slice(0, 16)}...</a>`;
+    // Escrow TX hash
+    const escrowTxRow = document.getElementById('row-escrow-tx');
+    if (trade.escrow_tx_hash) {
+        escrowTxRow.style.display = 'flex';
+        document.getElementById('t-escrow-tx').innerHTML =
+            `<a href="https://polygonscan.com/tx/${trade.escrow_tx_hash}" target="_blank" style="color:var(--accent)">${trade.escrow_tx_hash.slice(0, 16)}...</a>`;
     } else {
-        txRow.style.display = 'none';
+        escrowTxRow.style.display = 'none';
     }
 
-    // Virtual account - only show to buyer
-    const vaRow = document.getElementById('row-va');
-    if (trade.toss_account_number && currentRole === 'buyer') {
-        vaRow.style.display = 'flex';
-        document.getElementById('t-va').textContent = `${bankName(trade.toss_bank_code)} ${trade.toss_account_number}`;
+    // Release TX hash
+    const releaseTxRow = document.getElementById('row-release-tx');
+    if (trade.release_tx_hash) {
+        releaseTxRow.style.display = 'flex';
+        document.getElementById('t-release-tx').innerHTML =
+            `<a href="https://polygonscan.com/tx/${trade.release_tx_hash}" target="_blank" style="color:var(--accent)">${trade.release_tx_hash.slice(0, 16)}...</a>`;
     } else {
-        vaRow.style.display = 'none';
+        releaseTxRow.style.display = 'none';
+    }
+
+    // Bank account - show to buyer when status is usdc_escrowed or fiat_sent
+    const bankRow = document.getElementById('row-bank');
+    if (trade.bank_name && currentRole === 'buyer' && ['usdc_escrowed', 'fiat_sent'].includes(trade.status)) {
+        bankRow.style.display = 'flex';
+        document.getElementById('t-bank').textContent = `${trade.bank_name} ${trade.bank_account}`;
+    } else {
+        bankRow.style.display = 'none';
     }
 
     // Countdown
@@ -174,10 +267,11 @@ function updateTradeUI(trade) {
     }
 
     // Progress steps
-    const steps = ['created', 'joined', 'usdc_sent', 'fiat_deposited', 'completed'];
+    const steps = ['created', 'joined', 'usdc_escrowed', 'fiat_sent', 'completed'];
     const idx = steps.indexOf(trade.status);
     steps.forEach((s, i) => {
         const el = document.getElementById(`step-${s}`);
+        if (!el) return;
         el.className = 'step';
         if (i < idx) el.classList.add('done');
         else if (i === idx) el.classList.add('active');
@@ -186,6 +280,153 @@ function updateTradeUI(trade) {
     // Actions (role-aware)
     renderActions(trade);
 }
+
+// ---- Escrow interactions (MetaMask) ----
+
+async function depositToEscrow() {
+    try {
+        const account = await connectMetaMask();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
+        const amount = ethers.parseUnits(String(currentTrade.usdc_amount), USDC_DECIMALS);
+        const escrowAddr = ESCROW_ADDRESS;
+
+        if (!escrowAddr) {
+            alert('에스크로 컨트랙트 주소가 설정되지 않았습니다.');
+            return;
+        }
+
+        // Step 1: Approve
+        const btn = document.querySelector('#actions .btn-primary');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'USDC Approve 중... (MetaMask 확인)';
+        }
+
+        const currentAllowance = await usdcContract.allowance(account, escrowAddr);
+        if (currentAllowance < amount) {
+            const approveTx = await usdcContract.approve(escrowAddr, amount);
+            if (btn) btn.textContent = 'Approve 트랜잭션 확인 대기 중...';
+            await approveTx.wait();
+        }
+
+        // Step 2: Deposit
+        if (btn) btn.textContent = 'USDC Deposit 중... (MetaMask 확인)';
+        const escrowContract = new ethers.Contract(escrowAddr, ESCROW_ABI, signer);
+        const tradeIdBytes32 = uuidToBytes32(currentTrade.id);
+        const depositTx = await escrowContract.deposit(tradeIdBytes32, currentTrade.buyer_wallet, amount);
+
+        if (btn) btn.textContent = 'Deposit 트랜잭션 확인 대기 중...';
+        await depositTx.wait();
+
+        const el = document.getElementById('actions');
+        el.innerHTML = `
+            <div class="alert alert-success">
+                USDC가 에스크로에 입금되었습니다!<br>
+                백엔드에서 확인 중입니다... 잠시만 기다려주세요.
+            </div>
+            <div class="loading-spinner"></div>
+        `;
+    } catch (err) {
+        alert('에스크로 입금 실패: ' + (err.reason || err.message));
+        if (currentTrade) renderActions(currentTrade);
+    }
+}
+
+async function releaseFromEscrow() {
+    if (!confirm('KRW 입금을 확인하셨나요? USDC를 구매자에게 전송합니다.')) return;
+    try {
+        const account = await connectMetaMask();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        const escrowAddr = ESCROW_ADDRESS;
+        if (!escrowAddr) {
+            alert('에스크로 컨트랙트 주소가 설정되지 않았습니다.');
+            return;
+        }
+
+        const btn = document.querySelector('#actions .btn-green');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Release 중... (MetaMask 확인)';
+        }
+
+        const escrowContract = new ethers.Contract(escrowAddr, ESCROW_ABI, signer);
+        const tradeIdBytes32 = uuidToBytes32(currentTrade.id);
+        const tx = await escrowContract.release(tradeIdBytes32);
+
+        if (btn) btn.textContent = 'Release 트랜잭션 확인 대기 중...';
+        await tx.wait();
+
+        const el = document.getElementById('actions');
+        el.innerHTML = `
+            <div class="alert alert-success">
+                USDC가 구매자에게 전송되었습니다!<br>
+                백엔드에서 확인 중입니다...
+            </div>
+            <div class="loading-spinner"></div>
+        `;
+    } catch (err) {
+        alert('Release 실패: ' + (err.reason || err.message));
+        if (currentTrade) renderActions(currentTrade);
+    }
+}
+
+async function refundFromEscrow() {
+    if (!confirm('에스크로에 입금된 USDC를 환불받으시겠습니까?')) return;
+    try {
+        const account = await connectMetaMask();
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        const escrowAddr = ESCROW_ADDRESS;
+        if (!escrowAddr) {
+            alert('에스크로 컨트랙트 주소가 설정되지 않았습니다.');
+            return;
+        }
+
+        const btn = document.querySelector('#actions .btn-red');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Refund 중... (MetaMask 확인)';
+        }
+
+        const escrowContract = new ethers.Contract(escrowAddr, ESCROW_ABI, signer);
+        const tradeIdBytes32 = uuidToBytes32(currentTrade.id);
+        const tx = await escrowContract.refund(tradeIdBytes32);
+
+        if (btn) btn.textContent = 'Refund 트랜잭션 확인 대기 중...';
+        await tx.wait();
+
+        const el = document.getElementById('actions');
+        el.innerHTML = `
+            <div class="alert alert-info">
+                USDC가 환불되었습니다.<br>
+                백엔드에서 확인 중입니다...
+            </div>
+            <div class="loading-spinner"></div>
+        `;
+    } catch (err) {
+        alert('Refund 실패: ' + (err.reason || err.message));
+        if (currentTrade) renderActions(currentTrade);
+    }
+}
+
+async function confirmFiat() {
+    if (!confirm('판매자 계좌로 KRW를 송금하셨나요?')) return;
+    try {
+        const trade = await api('POST', `/trades/${currentTrade.id}/confirm-fiat`);
+        currentTrade = trade;
+        updateTradeUI(trade);
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+// ---- Render actions based on role and status ----
 
 function renderActions(trade) {
     const el = document.getElementById('actions');
@@ -206,69 +447,76 @@ function renderActions(trade) {
             el.innerHTML = `
                 <div class="alert alert-info">
                     상대방이 거래에 참여했습니다.<br>
-                    아래 주소로 <strong>${trade.usdc_amount} USDC</strong>를 보내주세요. (제한시간 20분)
+                    MetaMask로 <strong>${trade.usdc_amount} USDC</strong>를 에스크로에 입금하세요.
                 </div>
-                <div class="wallet-box">
-                    <span class="mono">${trade.buyer_wallet}</span>
-                    <button class="btn btn-secondary btn-sm" onclick="copyText('${trade.buyer_wallet}')">복사</button>
-                </div>
-                <button class="btn btn-primary btn-block" onclick="confirmUsdc()">USDC 전송 완료 확인</button>
+                <button class="btn btn-primary btn-block" onclick="depositToEscrow()">
+                    MetaMask로 USDC 에스크로 입금
+                </button>
             `;
         } else if (isBuyer) {
             el.innerHTML = `
                 <div class="alert alert-info">
                     거래에 참여했습니다.<br>
-                    판매자가 USDC를 전송 중입니다. 잠시만 기다려주세요...
+                    판매자가 USDC를 에스크로에 입금 중입니다. 잠시만 기다려주세요...
                 </div>
                 <div class="loading-spinner"></div>
             `;
         }
-    } else if (trade.status === 'usdc_sent') {
+    } else if (trade.status === 'usdc_escrowed') {
         if (isSeller) {
             el.innerHTML = `
                 <div class="alert alert-success">
-                    USDC 전송이 확인되었습니다.<br>
+                    USDC가 에스크로에 입금되었습니다.<br>
                     구매자의 KRW 입금을 기다리고 있습니다...
                 </div>
                 <div class="loading-spinner"></div>
+                <button class="btn btn-red btn-block" onclick="refundFromEscrow()" style="margin-top:12px">
+                    환불 (USDC 돌려받기)
+                </button>
             `;
         } else if (isBuyer) {
             el.innerHTML = `
                 <div class="alert alert-success">
-                    판매자가 USDC를 전송했습니다!
+                    판매자가 USDC를 에스크로에 입금했습니다!
                 </div>
-                ${trade.toss_account_number ? `
                 <div class="alert alert-warning">
-                    <strong>아래 계좌로 입금해주세요 (제한시간 20분)</strong><br><br>
-                    은행: ${bankName(trade.toss_bank_code)}<br>
-                    계좌번호: <strong>${trade.toss_account_number}</strong><br>
+                    <strong>아래 계좌로 입금해주세요</strong><br><br>
+                    은행: ${trade.bank_name}<br>
+                    계좌번호: <strong>${trade.bank_account}</strong><br>
                     금액: <strong>${Number(trade.total_krw).toLocaleString()} KRW</strong>
                 </div>
-                ` : `
-                <div class="alert alert-info">가상계좌를 생성 중입니다...</div>
-                `}
+                <button class="btn btn-primary btn-block" onclick="confirmFiat()">
+                    입금 완료
+                </button>
             `;
         }
-    } else if (trade.status === 'fiat_deposited') {
+    } else if (trade.status === 'fiat_sent') {
         if (isSeller) {
             el.innerHTML = `
                 <div class="alert alert-success">
-                    구매자가 <strong>${Number(trade.total_krw).toLocaleString()} KRW</strong>을 입금했습니다.<br>
-                    입금을 확인해주세요.
+                    구매자가 <strong>${Number(trade.total_krw).toLocaleString()} KRW</strong>을 입금했다고 알렸습니다.<br>
+                    은행 앱에서 입금을 확인한 후 USDC를 릴리즈하세요.
                 </div>
-                <button class="btn btn-green btn-block" onclick="releaseTrade()">입금 확인 완료 — 거래 완료</button>
+                <button class="btn btn-green btn-block" onclick="releaseFromEscrow()">
+                    입금 확인 — MetaMask로 USDC 전송
+                </button>
+                <button class="btn btn-red btn-block" onclick="refundFromEscrow()" style="margin-top:8px">
+                    미입금 — 환불 (USDC 돌려받기)
+                </button>
             `;
         } else if (isBuyer) {
             el.innerHTML = `
                 <div class="alert alert-success">
-                    입금이 확인되었습니다!<br>
-                    판매자가 입금을 확인하고 있습니다. 잠시만 기다려주세요...
+                    입금 완료를 알렸습니다.<br>
+                    판매자가 입금을 확인하고 USDC를 전송할 때까지 기다려주세요...
                 </div>
                 <div class="loading-spinner"></div>
             `;
         }
     } else if (trade.status === 'completed') {
         el.innerHTML = `<div class="alert alert-success">거래가 성공적으로 완료되었습니다!</div>`;
+    } else if (trade.status === 'refunded') {
+        el.innerHTML = `<div class="alert alert-info">에스크로에서 USDC가 판매자에게 환불되었습니다.</div>`;
     } else if (trade.status === 'expired' || trade.status === 'cancelled') {
         el.innerHTML = `<div class="alert" style="background:#3a1a1a;color:#ef5350;">거래가 만료/취소되었습니다.</div>`;
     }
@@ -278,38 +526,8 @@ function copyText(text) {
     navigator.clipboard.writeText(text);
 }
 
-async function confirmUsdc() {
-    try {
-        const btn = document.querySelector('#actions .btn-primary');
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = 'USDC 전송 확인 중...';
-        }
-        await api('POST', `/trades/${currentTrade.id}/confirm-usdc`);
-        const el = document.getElementById('actions');
-        el.innerHTML = `
-            <div class="alert alert-info">
-                블록체인에서 USDC 전송을 확인하고 있습니다.<br>
-                전송이 감지되면 자동으로 다음 단계로 진행됩니다.
-            </div>
-            <div class="loading-spinner"></div>
-        `;
-    } catch (err) {
-        alert(err.message);
-    }
-}
+// ---- WebSocket ----
 
-async function releaseTrade() {
-    if (!confirm('KRW 입금을 확인하셨나요? 거래를 완료합니다.')) return;
-    try {
-        const trade = await api('POST', `/trades/${currentTrade.id}/release`);
-        updateTradeUI(trade);
-    } catch (err) {
-        alert(err.message);
-    }
-}
-
-// WebSocket
 function connectWebSocket(tradeId) {
     if (ws && ws.readyState === WebSocket.OPEN) return;
     if (ws) ws.close();
@@ -319,7 +537,6 @@ function connectWebSocket(tradeId) {
         const msg = JSON.parse(e.data);
         if (msg.type === 'trade_update') {
             currentTrade = msg.trade;
-            // If seller is on share screen and buyer joined, auto-move to trade screen
             const shareScreen = document.getElementById('screen-share');
             if (shareScreen.classList.contains('active') && msg.trade.status === 'joined') {
                 showTradeScreen(msg.trade);
@@ -334,18 +551,15 @@ function connectWebSocket(tradeId) {
     };
 }
 
-// Helpers
+// ---- Helpers ----
+
 function statusLabel(s) {
     const map = {
-        created: '대기중', joined: '참여됨', usdc_sent: 'USDC 전송됨',
-        fiat_deposited: 'KRW 입금됨', completed: '완료', expired: '만료', cancelled: '취소'
+        created: '대기중', joined: '참여됨', usdc_escrowed: 'USDC 에스크로',
+        fiat_sent: 'KRW 입금 알림', completed: '완료', refunded: '환불됨',
+        expired: '만료', cancelled: '취소'
     };
     return map[s] || s;
-}
-
-function bankName(code) {
-    const banks = { '20': '우리은행', '88': '신한은행', '04': 'KB국민', '03': 'IBK기업' };
-    return banks[code] || `은행(${code})`;
 }
 
 function startCountdown(expiresAt) {
