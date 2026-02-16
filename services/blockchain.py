@@ -18,7 +18,7 @@ with open(ABI_PATH) as f:
     ESCROW_ABI = json.load(f)
 
 POLL_INTERVAL = 10  # seconds
-MAX_BLOCK_RANGE = 1000  # Polygon public RPC limit
+MAX_BLOCK_RANGE = 50  # Polygon public RPC limit (conservative)
 
 
 def uuid_to_bytes32(uuid_str: str) -> bytes:
