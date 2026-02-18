@@ -285,6 +285,33 @@ function updateTradeUI(trade) {
     renderActions(trade);
 }
 
+// ---- Poll for status update after on-chain tx ----
+
+function waitForStatusChange(expectedStatuses, timeoutMs = 30000) {
+    const startStatus = currentTrade.status;
+    const interval = 3000;
+    let elapsed = 0;
+
+    const poll = setInterval(async () => {
+        elapsed += interval;
+        try {
+            const trade = await api('GET', `/trades/${currentTrade.id}`);
+            if (expectedStatuses.includes(trade.status)) {
+                clearInterval(poll);
+                currentTrade = trade;
+                updateTradeUI(trade);
+            }
+        } catch (e) { /* ignore */ }
+        if (elapsed >= timeoutMs) {
+            clearInterval(poll);
+            // Force reload as last resort
+            const trade = await api('GET', `/trades/${currentTrade.id}`);
+            currentTrade = trade;
+            updateTradeUI(trade);
+        }
+    }, interval);
+}
+
 // ---- Escrow interactions (MetaMask) ----
 
 async function depositToEscrow() {
@@ -329,10 +356,11 @@ async function depositToEscrow() {
         el.innerHTML = `
             <div class="alert alert-success">
                 USDC가 에스크로에 입금되었습니다!<br>
-                백엔드에서 확인 중입니다... 잠시만 기다려주세요.
+                상태 업데이트 중...
             </div>
             <div class="loading-spinner"></div>
         `;
+        waitForStatusChange(['usdc_escrowed', 'fiat_sent', 'completed']);
     } catch (err) {
         alert('에스크로 입금 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -369,11 +397,11 @@ async function confirmFiatOnChain() {
         el.innerHTML = `
             <div class="alert alert-success">
                 입금 확인이 온체인에 기록되었습니다!<br>
-                판매자가 USDC를 전송할 때까지 기다려주세요...<br>
-                <small>판매자가 24시간 내 응답하지 않으면 직접 USDC를 회수할 수 있습니다.</small>
+                상태 업데이트 중...
             </div>
             <div class="loading-spinner"></div>
         `;
+        waitForStatusChange(['fiat_sent', 'completed']);
     } catch (err) {
         alert('입금 확인 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -410,10 +438,11 @@ async function releaseFromEscrow() {
         el.innerHTML = `
             <div class="alert alert-success">
                 USDC가 구매자에게 전송되었습니다!<br>
-                백엔드에서 확인 중입니다...
+                상태 업데이트 중...
             </div>
             <div class="loading-spinner"></div>
         `;
+        waitForStatusChange(['completed']);
     } catch (err) {
         alert('Release 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -450,10 +479,11 @@ async function refundFromEscrow() {
         el.innerHTML = `
             <div class="alert alert-info">
                 USDC가 환불되었습니다.<br>
-                백엔드에서 확인 중입니다...
+                상태 업데이트 중...
             </div>
             <div class="loading-spinner"></div>
         `;
+        waitForStatusChange(['refunded']);
     } catch (err) {
         alert('Refund 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -490,10 +520,11 @@ async function claimByBuyer() {
         el.innerHTML = `
             <div class="alert alert-success">
                 USDC를 회수했습니다!<br>
-                백엔드에서 확인 중입니다...
+                상태 업데이트 중...
             </div>
             <div class="loading-spinner"></div>
         `;
+        waitForStatusChange(['completed']);
     } catch (err) {
         alert('USDC 회수 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
