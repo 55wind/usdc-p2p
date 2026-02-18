@@ -562,9 +562,8 @@ function renderActions(trade) {
             el.innerHTML = `
                 <div class="alert alert-info">
                     거래에 참여했습니다.<br>
-                    판매자가 USDC를 에스크로에 입금 중입니다. 잠시만 기다려주세요...
+                    판매자가 USDC를 에스크로에 입금할 때까지 기다려주세요.
                 </div>
-                <div class="loading-spinner"></div>
             `;
         }
     } else if (trade.status === 'usdc_escrowed') {
@@ -572,9 +571,8 @@ function renderActions(trade) {
             el.innerHTML = `
                 <div class="alert alert-success">
                     USDC가 에스크로에 입금되었습니다.<br>
-                    구매자의 KRW 입금을 기다리고 있습니다...
+                    구매자의 KRW 입금을 기다리고 있습니다.
                 </div>
-                <div class="loading-spinner"></div>
                 <button class="btn btn-red btn-block" onclick="refundFromEscrow()" style="margin-top:12px">
                     환불 (USDC 돌려받기)
                 </button>
@@ -619,9 +617,8 @@ function renderActions(trade) {
             el.innerHTML = `
                 <div class="alert alert-success">
                     입금 확인이 온체인에 기록되었습니다.<br>
-                    판매자가 입금을 확인하고 USDC를 전송할 때까지 기다려주세요...
+                    판매자가 입금을 확인하고 USDC를 전송할 때까지 기다려주세요.
                 </div>
-                <div class="loading-spinner"></div>
                 <div class="alert alert-info" style="margin-top:12px">
                     판매자가 24시간 내 응답하지 않으면 아래 버튼으로 USDC를 직접 회수할 수 있습니다.
                 </div>
