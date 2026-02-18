@@ -86,48 +86,58 @@ async def _check_trade_state(contract, db, trade):
     now = datetime.now(timezone.utc).isoformat()
     new_status = None
 
-    if trade["status"] == "joined":
-        # Check if USDC was deposited (amount > 0 and active)
-        if active and amount > 0:
-            expires = (datetime.now(timezone.utc) + timedelta(minutes=60)).isoformat()
-            await db.execute(
-                """UPDATE trades SET status = 'usdc_escrowed', escrowed_at = ?,
-                   expires_at = ? WHERE id = ?""",
-                (now, expires, trade_id),
-            )
-            new_status = "usdc_escrowed"
-            logger.info(f"[{trade_id[:8]}] Deposit detected, amount={amount}")
+    # Determine the correct status based on on-chain state
+    # Handle all possible on-chain states regardless of current DB status
+    if amount == 0:
+        # No deposit on-chain yet, nothing to do
+        return
 
-    elif trade["status"] == "usdc_escrowed":
-        if not active:
-            # Trade closed while in escrowed state (refunded)
-            await db.execute(
-                """UPDATE trades SET status = 'refunded', completed_at = ?,
-                   expires_at = NULL WHERE id = ?""",
-                (now, trade_id),
-            )
-            new_status = "refunded"
-            logger.info(f"[{trade_id[:8]}] Refund detected")
-        elif fiat_confirmed:
-            # Buyer confirmed fiat on-chain
-            await db.execute(
-                """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ?,
-                   expires_at = NULL WHERE id = ?""",
-                (now, trade_id),
-            )
-            new_status = "fiat_sent"
-            logger.info(f"[{trade_id[:8]}] Fiat confirmation detected")
-
-    elif trade["status"] == "fiat_sent":
-        if not active:
-            # Trade closed after fiat confirmed (released or buyer claimed)
-            await db.execute(
-                """UPDATE trades SET status = 'completed', completed_at = ?,
-                   expires_at = NULL WHERE id = ?""",
-                (now, trade_id),
-            )
+    if not active:
+        # Trade is closed on-chain
+        if fiat_confirmed:
+            # Fiat was confirmed → released or buyer claimed → completed
             new_status = "completed"
-            logger.info(f"[{trade_id[:8]}] Release/claim detected")
+        else:
+            # Fiat never confirmed → refunded
+            new_status = "refunded"
+    elif fiat_confirmed:
+        # Active + fiat confirmed → fiat_sent
+        new_status = "fiat_sent"
+    else:
+        # Active + no fiat confirmed → usdc_escrowed
+        new_status = "usdc_escrowed"
+
+    # Only update if status actually changed
+    if new_status == trade["status"]:
+        return
+
+    logger.info(f"[{trade_id[:8]}] State change: {trade['status']} -> {new_status}")
+
+    if new_status == "usdc_escrowed":
+        expires = (datetime.now(timezone.utc) + timedelta(minutes=60)).isoformat()
+        await db.execute(
+            """UPDATE trades SET status = 'usdc_escrowed', escrowed_at = ?,
+               expires_at = ? WHERE id = ?""",
+            (now, expires, trade_id),
+        )
+    elif new_status == "fiat_sent":
+        await db.execute(
+            """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ?,
+               expires_at = NULL WHERE id = ?""",
+            (now, trade_id),
+        )
+    elif new_status == "completed":
+        await db.execute(
+            """UPDATE trades SET status = 'completed', completed_at = ?,
+               expires_at = NULL WHERE id = ?""",
+            (now, trade_id),
+        )
+    elif new_status == "refunded":
+        await db.execute(
+            """UPDATE trades SET status = 'refunded', completed_at = ?,
+               expires_at = NULL WHERE id = ?""",
+            (now, trade_id),
+        )
 
     if new_status:
         await db.commit()
