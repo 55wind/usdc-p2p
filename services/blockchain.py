@@ -17,8 +17,11 @@ ABI_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "abi", "USDC
 with open(ABI_PATH) as f:
     ESCROW_ABI = json.load(f)
 
-POLL_INTERVAL = 10  # seconds
-MAX_BLOCK_RANGE = 50  # Polygon public RPC limit (conservative)
+POLL_INTERVAL = 5  # seconds
+MAX_BLOCK_RANGE = 20  # Polygon public RPC limit (very conservative)
+
+# Event name to handler mapping (populated after handler definitions)
+EVENT_HANDLERS = {}
 
 
 def uuid_to_bytes32(uuid_str: str) -> bytes:
@@ -41,10 +44,8 @@ async def run_escrow_monitor():
         return
 
     w3 = Web3(Web3.HTTPProvider(POLYGON_RPC_URL))
-    contract = w3.eth.contract(
-        address=Web3.to_checksum_address(ESCROW_CONTRACT_ADDRESS),
-        abi=ESCROW_ABI,
-    )
+    checksum_addr = Web3.to_checksum_address(ESCROW_CONTRACT_ADDRESS)
+    contract = w3.eth.contract(address=checksum_addr, abi=ESCROW_ABI)
 
     # Start from current block
     last_block = w3.eth.block_number
@@ -60,42 +61,37 @@ async def run_escrow_monitor():
             from_block = last_block + 1
             to_block = min(current_block, from_block + MAX_BLOCK_RANGE)
 
-            # Fetch all event types
-            deposited_events = contract.events.Deposited.get_logs(
-                fromBlock=from_block, toBlock=to_block
-            )
-            fiat_confirmed_events = contract.events.FiatConfirmed.get_logs(
-                fromBlock=from_block, toBlock=to_block
-            )
-            released_events = contract.events.Released.get_logs(
-                fromBlock=from_block, toBlock=to_block
-            )
-            refunded_events = contract.events.Refunded.get_logs(
-                fromBlock=from_block, toBlock=to_block
-            )
-            buyer_claimed_events = contract.events.BuyerClaimed.get_logs(
-                fromBlock=from_block, toBlock=to_block
-            )
+            # Single RPC call: get ALL logs for our contract address
+            raw_logs = w3.eth.get_logs({
+                "address": checksum_addr,
+                "fromBlock": from_block,
+                "toBlock": to_block,
+            })
 
-            for event in deposited_events:
-                await _handle_deposited(event)
-
-            for event in fiat_confirmed_events:
-                await _handle_fiat_confirmed(event)
-
-            for event in released_events:
-                await _handle_released(event)
-
-            for event in refunded_events:
-                await _handle_refunded(event)
-
-            for event in buyer_claimed_events:
-                await _handle_buyer_claimed(event)
+            # Decode and dispatch each log
+            for raw_log in raw_logs:
+                try:
+                    for event_name, handler in EVENT_HANDLERS.items():
+                        try:
+                            evt = getattr(contract.events, event_name)
+                            decoded = evt.process_log(raw_log)
+                            await handler(decoded)
+                            break
+                        except Exception:
+                            continue
+                except Exception as ex:
+                    logger.warning(f"Could not decode log: {ex}")
 
             last_block = to_block
 
         except Exception as e:
             logger.error(f"Escrow monitor error: {e}")
+            # On persistent error, skip ahead to avoid being stuck forever
+            try:
+                last_block = w3.eth.block_number
+                logger.info(f"Skipped ahead to block {last_block}")
+            except Exception:
+                pass
 
         await asyncio.sleep(POLL_INTERVAL)
 
@@ -266,3 +262,13 @@ async def _handle_buyer_claimed(event):
         trade = dict(rows[0])
 
     await notify_trade_update(trade_id, trade)
+
+
+# Map event names to handlers (used by run_escrow_monitor)
+EVENT_HANDLERS.update({
+    "Deposited": _handle_deposited,
+    "FiatConfirmed": _handle_fiat_confirmed,
+    "Released": _handle_released,
+    "Refunded": _handle_refunded,
+    "BuyerClaimed": _handle_buyer_claimed,
+})
