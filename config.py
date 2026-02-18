@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Polygon RPC
-POLYGON_RPC_URL = os.getenv("POLYGON_RPC_URL", "https://rpc.ankr.com/polygon")
+POLYGON_RPC_URL = os.getenv("POLYGON_RPC_URL", "https://polygon-bor-rpc.publicnode.com")
 
 # USDC contract on Polygon (native USDC)
 USDC_CONTRACT_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
