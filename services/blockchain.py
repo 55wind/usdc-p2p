@@ -18,10 +18,6 @@ with open(ABI_PATH) as f:
     ESCROW_ABI = json.load(f)
 
 POLL_INTERVAL = 5  # seconds
-MAX_BLOCK_RANGE = 20  # Polygon public RPC limit (very conservative)
-
-# Event name to handler mapping (populated after handler definitions)
-EVENT_HANDLERS = {}
 
 
 def uuid_to_bytes32(uuid_str: str) -> bytes:
@@ -38,237 +34,103 @@ def bytes32_to_uuid(b: bytes) -> str:
 
 
 async def run_escrow_monitor():
-    """Background loop monitoring escrow contract events."""
+    """Background loop: poll on-chain trade state for active trades."""
     if not ESCROW_CONTRACT_ADDRESS:
         logger.warning("ESCROW_CONTRACT_ADDRESS not set, escrow monitor disabled")
         return
 
     w3 = Web3(Web3.HTTPProvider(POLYGON_RPC_URL))
-    checksum_addr = Web3.to_checksum_address(ESCROW_CONTRACT_ADDRESS)
-    contract = w3.eth.contract(address=checksum_addr, abi=ESCROW_ABI)
+    contract = w3.eth.contract(
+        address=Web3.to_checksum_address(ESCROW_CONTRACT_ADDRESS),
+        abi=ESCROW_ABI,
+    )
 
-    # Start from current block
-    last_block = w3.eth.block_number
-    logger.info(f"Escrow monitor started at block {last_block}, contract={ESCROW_CONTRACT_ADDRESS}")
+    logger.info(f"Escrow monitor started (state polling), contract={ESCROW_CONTRACT_ADDRESS}")
 
     while True:
         try:
-            current_block = w3.eth.block_number
-            if current_block <= last_block:
-                await asyncio.sleep(POLL_INTERVAL)
-                continue
+            async with aiosqlite.connect(DB_PATH) as db:
+                db.row_factory = aiosqlite.Row
 
-            from_block = last_block + 1
-            to_block = min(current_block, from_block + MAX_BLOCK_RANGE)
+                # Get all trades that might have on-chain updates
+                rows = await db.execute_fetchall(
+                    "SELECT * FROM trades WHERE status IN ('joined', 'usdc_escrowed', 'fiat_sent')"
+                )
 
-            # Single RPC call: get ALL logs for our contract address
-            raw_logs = w3.eth.get_logs({
-                "address": checksum_addr,
-                "fromBlock": from_block,
-                "toBlock": to_block,
-            })
+                for row in rows:
+                    trade = dict(row)
+                    trade_id = trade["id"]
 
-            # Decode and dispatch each log
-            for raw_log in raw_logs:
-                try:
-                    for event_name, handler in EVENT_HANDLERS.items():
-                        try:
-                            evt = getattr(contract.events, event_name)
-                            decoded = evt.process_log(raw_log)
-                            await handler(decoded)
-                            break
-                        except Exception:
-                            continue
-                except Exception as ex:
-                    logger.warning(f"Could not decode log: {ex}")
-
-            last_block = to_block
+                    try:
+                        await _check_trade_state(contract, db, trade)
+                    except Exception as ex:
+                        logger.warning(f"[{trade_id[:8]}] Error checking state: {ex}")
 
         except Exception as e:
             logger.error(f"Escrow monitor error: {e}")
-            # On persistent error, skip ahead to avoid being stuck forever
-            try:
-                last_block = w3.eth.block_number
-                logger.info(f"Skipped ahead to block {last_block}")
-            except Exception:
-                pass
 
         await asyncio.sleep(POLL_INTERVAL)
 
 
-async def _handle_deposited(event):
-    """Handle Deposited event: update trade status to usdc_escrowed."""
+async def _check_trade_state(contract, db, trade):
+    """Check on-chain state for a single trade and update DB if changed."""
     from services.escrow import notify_trade_update
 
-    trade_id_bytes = event["args"]["tradeId"]
-    trade_id = bytes32_to_uuid(trade_id_bytes)
-    tx_hash = event["transactionHash"].hex()
+    trade_id = trade["id"]
+    trade_id_bytes = uuid_to_bytes32(trade_id)
 
-    logger.info(f"[{trade_id[:8]}] Deposited event detected, tx={tx_hash}")
-
-    now = datetime.now(timezone.utc).isoformat()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        if not rows:
-            logger.warning(f"[{trade_id[:8]}] Trade not found for Deposited event")
-            return
-
-        trade = dict(rows[0])
-        if trade["status"] not in ("joined",):
-            logger.warning(f"[{trade_id[:8]}] Ignoring Deposited event, status={trade['status']}")
-            return
-
-        await db.execute(
-            """UPDATE trades SET status = 'usdc_escrowed', escrow_tx_hash = ?, escrowed_at = ?,
-               expires_at = ? WHERE id = ?""",
-            (tx_hash, now, (datetime.now(timezone.utc) + timedelta(minutes=60)).isoformat(), trade_id),
-        )
-        await db.commit()
-
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        trade = dict(rows[0])
-
-    await notify_trade_update(trade_id, trade)
-
-
-async def _handle_fiat_confirmed(event):
-    """Handle FiatConfirmed event: update trade status to fiat_sent."""
-    from services.escrow import notify_trade_update
-
-    trade_id_bytes = event["args"]["tradeId"]
-    trade_id = bytes32_to_uuid(trade_id_bytes)
-
-    logger.info(f"[{trade_id[:8]}] FiatConfirmed event detected")
+    # Query on-chain: trades(bytes32) returns (seller, buyer, amount, active, fiatConfirmed, fiatConfirmedAt)
+    on_chain = contract.functions.trades(trade_id_bytes).call()
+    seller, buyer, amount, active, fiat_confirmed, fiat_confirmed_at = on_chain
 
     now = datetime.now(timezone.utc).isoformat()
+    new_status = None
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        if not rows:
-            logger.warning(f"[{trade_id[:8]}] Trade not found for FiatConfirmed event")
-            return
+    if trade["status"] == "joined":
+        # Check if USDC was deposited (amount > 0 and active)
+        if active and amount > 0:
+            expires = (datetime.now(timezone.utc) + timedelta(minutes=60)).isoformat()
+            await db.execute(
+                """UPDATE trades SET status = 'usdc_escrowed', escrowed_at = ?,
+                   expires_at = ? WHERE id = ?""",
+                (now, expires, trade_id),
+            )
+            new_status = "usdc_escrowed"
+            logger.info(f"[{trade_id[:8]}] Deposit detected, amount={amount}")
 
-        trade = dict(rows[0])
-        if trade["status"] != "usdc_escrowed":
-            logger.warning(f"[{trade_id[:8]}] Ignoring FiatConfirmed event, status={trade['status']}")
-            return
+    elif trade["status"] == "usdc_escrowed":
+        if not active:
+            # Trade closed while in escrowed state (refunded)
+            await db.execute(
+                """UPDATE trades SET status = 'refunded', completed_at = ?,
+                   expires_at = NULL WHERE id = ?""",
+                (now, trade_id),
+            )
+            new_status = "refunded"
+            logger.info(f"[{trade_id[:8]}] Refund detected")
+        elif fiat_confirmed:
+            # Buyer confirmed fiat on-chain
+            await db.execute(
+                """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ?,
+                   expires_at = NULL WHERE id = ?""",
+                (now, trade_id),
+            )
+            new_status = "fiat_sent"
+            logger.info(f"[{trade_id[:8]}] Fiat confirmation detected")
 
-        await db.execute(
-            """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ?, expires_at = NULL WHERE id = ?""",
-            (now, trade_id),
-        )
+    elif trade["status"] == "fiat_sent":
+        if not active:
+            # Trade closed after fiat confirmed (released or buyer claimed)
+            await db.execute(
+                """UPDATE trades SET status = 'completed', completed_at = ?,
+                   expires_at = NULL WHERE id = ?""",
+                (now, trade_id),
+            )
+            new_status = "completed"
+            logger.info(f"[{trade_id[:8]}] Release/claim detected")
+
+    if new_status:
         await db.commit()
-
         rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        trade = dict(rows[0])
-
-    await notify_trade_update(trade_id, trade)
-
-
-async def _handle_released(event):
-    """Handle Released event: update trade status to completed."""
-    from services.escrow import notify_trade_update
-
-    trade_id_bytes = event["args"]["tradeId"]
-    trade_id = bytes32_to_uuid(trade_id_bytes)
-    tx_hash = event["transactionHash"].hex()
-
-    logger.info(f"[{trade_id[:8]}] Released event detected, tx={tx_hash}")
-
-    now = datetime.now(timezone.utc).isoformat()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        if not rows:
-            logger.warning(f"[{trade_id[:8]}] Trade not found for Released event")
-            return
-
-        await db.execute(
-            """UPDATE trades SET status = 'completed', release_tx_hash = ?, completed_at = ?,
-               expires_at = NULL WHERE id = ?""",
-            (tx_hash, now, trade_id),
-        )
-        await db.commit()
-
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        trade = dict(rows[0])
-
-    await notify_trade_update(trade_id, trade)
-
-
-async def _handle_refunded(event):
-    """Handle Refunded event: update trade status to refunded."""
-    from services.escrow import notify_trade_update
-
-    trade_id_bytes = event["args"]["tradeId"]
-    trade_id = bytes32_to_uuid(trade_id_bytes)
-    tx_hash = event["transactionHash"].hex()
-
-    logger.info(f"[{trade_id[:8]}] Refunded event detected, tx={tx_hash}")
-
-    now = datetime.now(timezone.utc).isoformat()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        if not rows:
-            logger.warning(f"[{trade_id[:8]}] Trade not found for Refunded event")
-            return
-
-        await db.execute(
-            """UPDATE trades SET status = 'refunded', release_tx_hash = ?, completed_at = ?,
-               expires_at = NULL WHERE id = ?""",
-            (tx_hash, now, trade_id),
-        )
-        await db.commit()
-
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        trade = dict(rows[0])
-
-    await notify_trade_update(trade_id, trade)
-
-
-async def _handle_buyer_claimed(event):
-    """Handle BuyerClaimed event: buyer auto-claimed USDC after seller timeout."""
-    from services.escrow import notify_trade_update
-
-    trade_id_bytes = event["args"]["tradeId"]
-    trade_id = bytes32_to_uuid(trade_id_bytes)
-    tx_hash = event["transactionHash"].hex()
-
-    logger.info(f"[{trade_id[:8]}] BuyerClaimed event detected, tx={tx_hash}")
-
-    now = datetime.now(timezone.utc).isoformat()
-
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        if not rows:
-            logger.warning(f"[{trade_id[:8]}] Trade not found for BuyerClaimed event")
-            return
-
-        await db.execute(
-            """UPDATE trades SET status = 'completed', release_tx_hash = ?, completed_at = ?,
-               expires_at = NULL WHERE id = ?""",
-            (tx_hash, now, trade_id),
-        )
-        await db.commit()
-
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        trade = dict(rows[0])
-
-    await notify_trade_update(trade_id, trade)
-
-
-# Map event names to handlers (used by run_escrow_monitor)
-EVENT_HANDLERS.update({
-    "Deposited": _handle_deposited,
-    "FiatConfirmed": _handle_fiat_confirmed,
-    "Released": _handle_released,
-    "Refunded": _handle_refunded,
-    "BuyerClaimed": _handle_buyer_claimed,
-})
+        updated_trade = dict(rows[0])
+        await notify_trade_update(trade_id, updated_trade)
