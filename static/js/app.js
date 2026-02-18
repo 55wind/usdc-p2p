@@ -285,31 +285,28 @@ function updateTradeUI(trade) {
     renderActions(trade);
 }
 
-// ---- Poll for status update after on-chain tx ----
+// ---- Reload trade after on-chain tx ----
 
-function waitForStatusChange(expectedStatuses, timeoutMs = 30000) {
-    const startStatus = currentTrade.status;
-    const interval = 3000;
-    let elapsed = 0;
+function reloadTradeAfterTx() {
+    // Poll every 2 seconds, reload UI each time so user sees latest state
+    let attempts = 0;
+    const maxAttempts = 15; // 30 seconds max
 
     const poll = setInterval(async () => {
-        elapsed += interval;
+        attempts++;
         try {
             const trade = await api('GET', `/trades/${currentTrade.id}`);
-            if (expectedStatuses.includes(trade.status)) {
+            if (trade.status !== currentTrade.status || attempts >= maxAttempts) {
                 clearInterval(poll);
                 currentTrade = trade;
                 updateTradeUI(trade);
             }
         } catch (e) { /* ignore */ }
-        if (elapsed >= timeoutMs) {
+        if (attempts >= maxAttempts) {
             clearInterval(poll);
-            // Force reload as last resort
-            const trade = await api('GET', `/trades/${currentTrade.id}`);
-            currentTrade = trade;
-            updateTradeUI(trade);
+            loadTrade(currentTrade.id);
         }
-    }, interval);
+    }, 2000);
 }
 
 // ---- Escrow interactions (MetaMask) ----
@@ -352,15 +349,8 @@ async function depositToEscrow() {
         if (btn) btn.textContent = 'Deposit 트랜잭션 확인 대기 중...';
         await depositTx.wait();
 
-        const el = document.getElementById('actions');
-        el.innerHTML = `
-            <div class="alert alert-success">
-                USDC가 에스크로에 입금되었습니다!<br>
-                상태 업데이트 중...
-            </div>
-            <div class="loading-spinner"></div>
-        `;
-        waitForStatusChange(['usdc_escrowed', 'fiat_sent', 'completed']);
+        alert('USDC 에스크로 입금 완료!');
+        reloadTradeAfterTx();
     } catch (err) {
         alert('에스크로 입금 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -393,15 +383,8 @@ async function confirmFiatOnChain() {
         if (btn) btn.textContent = '트랜잭션 확인 대기 중...';
         await tx.wait();
 
-        const el = document.getElementById('actions');
-        el.innerHTML = `
-            <div class="alert alert-success">
-                입금 확인이 온체인에 기록되었습니다!<br>
-                상태 업데이트 중...
-            </div>
-            <div class="loading-spinner"></div>
-        `;
-        waitForStatusChange(['fiat_sent', 'completed']);
+        alert('입금 확인 완료! 온체인에 기록되었습니다.');
+        reloadTradeAfterTx();
     } catch (err) {
         alert('입금 확인 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -434,15 +417,8 @@ async function releaseFromEscrow() {
         if (btn) btn.textContent = 'Release 트랜잭션 확인 대기 중...';
         await tx.wait();
 
-        const el = document.getElementById('actions');
-        el.innerHTML = `
-            <div class="alert alert-success">
-                USDC가 구매자에게 전송되었습니다!<br>
-                상태 업데이트 중...
-            </div>
-            <div class="loading-spinner"></div>
-        `;
-        waitForStatusChange(['completed']);
+        alert('USDC 전송 완료!');
+        reloadTradeAfterTx();
     } catch (err) {
         alert('Release 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -475,15 +451,8 @@ async function refundFromEscrow() {
         if (btn) btn.textContent = 'Refund 트랜잭션 확인 대기 중...';
         await tx.wait();
 
-        const el = document.getElementById('actions');
-        el.innerHTML = `
-            <div class="alert alert-info">
-                USDC가 환불되었습니다.<br>
-                상태 업데이트 중...
-            </div>
-            <div class="loading-spinner"></div>
-        `;
-        waitForStatusChange(['refunded']);
+        alert('USDC 환불 완료!');
+        reloadTradeAfterTx();
     } catch (err) {
         alert('Refund 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
@@ -516,15 +485,8 @@ async function claimByBuyer() {
         if (btn) btn.textContent = '트랜잭션 확인 대기 중...';
         await tx.wait();
 
-        const el = document.getElementById('actions');
-        el.innerHTML = `
-            <div class="alert alert-success">
-                USDC를 회수했습니다!<br>
-                상태 업데이트 중...
-            </div>
-            <div class="loading-spinner"></div>
-        `;
-        waitForStatusChange(['completed']);
+        alert('USDC 회수 완료!');
+        reloadTradeAfterTx();
     } catch (err) {
         alert('USDC 회수 실패: ' + (err.reason || err.message));
         if (currentTrade) renderActions(currentTrade);
