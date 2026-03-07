@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,11 +17,11 @@
         <!-- Home Screen -->
         <div id="screen-home" class="screen active">
             <div class="hero">
-                <h1>P2P USDC-KRW Trading</h1>
-                <p>Polygon 네트워크에서 USDC를 안전하게 거래하세요</p>
+                <h1>USDC-KRW P2P Trading</h1>
+                <p>Trade USDC safely on the Polygon network</p>
                 <div class="hero-buttons">
-                    <button class="btn btn-sell btn-lg" onclick="navigateTo('sell')">USDC Sell</button>
-                    <button class="btn btn-buy btn-lg" onclick="navigateTo('buy-intro')">USDC Buy</button>
+                    <button class="btn btn-sell btn-lg" onclick="navigateTo('sell')">SELL USDC</button>
+                    <button class="btn btn-buy btn-lg" onclick="navigateTo('buy-intro')">BUY USDC</button>
                 </div>
             </div>
         </div>
@@ -29,36 +29,36 @@
         <!-- Buy Intro (placeholder - buyer enters via shared link) -->
         <div id="screen-buy-intro" class="screen">
             <div class="card text-center">
-                <h2>USDC 구매</h2>
+                <h2>Buy USDC</h2>
                 <p style="color:var(--text2); margin-bottom:24px;">
-                    USDC를 구매하려면 판매자로부터 거래 링크를 받아야 합니다.<br>
-                    판매자가 공유한 링크를 통해 거래에 참여하세요.
+                    To buy USDC, you need to receive a trade link from a seller.<br>
+                    Join the trade using the link shared by the seller.
                 </p>
-                <button class="btn btn-secondary" onclick="navigateTo('home')">돌아가기</button>
+                <button class="btn btn-secondary" onclick="navigateTo('home')">Go Back</button>
             </div>
         </div>
 
         <!-- Sell Form -->
         <div id="screen-sell" class="screen">
             <div class="card">
-                <h2>USDC 판매 등록</h2>
+                <h2>Create USDC Sell Order</h2>
                 <form id="sell-form" onsubmit="createTrade(event)">
                     <div class="form-group">
-                        <label>판매자 지갑 주소 (Polygon)</label>
+                        <label>Seller Wallet Address (Polygon)</label>
                         <input type="text" id="seller-wallet" placeholder="0x..." required>
                     </div>
                     <div class="form-group">
-                        <label>USDC 수량</label>
+                        <label>USDC Amount</label>
                         <input type="number" id="usdc-amount" step="0.01" min="1" placeholder="100" required>
                     </div>
                     <div class="form-group">
-                        <label>총 금액 (KRW)</label>
+                        <label>Total Price (KRW)</label>
                         <input type="number" id="total-krw" step="1" min="1" placeholder="135000" required>
                     </div>
                     <div class="form-group">
-                        <label>은행</label>
+                        <label>Bank</label>
                         <select id="bank-name" required>
-                            <option value="">은행 선택</option>
+                            <option value="">Select Bank</option>
                             <option value="KB국민">KB국민은행</option>
                             <option value="신한">신한은행</option>
                             <option value="우리">우리은행</option>
@@ -77,10 +77,10 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>계좌번호</label>
-                        <input type="text" id="bank-account" placeholder="계좌번호 입력" required>
+                        <label>Bank Account Number</label>
+                        <input type="text" id="bank-account" placeholder="Enter Bank Account Number" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-block">거래 생성</button>
+                    <button type="submit" class="btn btn-primary btn-block">Create Order</button>
                 </form>
             </div>
         </div>
@@ -88,17 +88,17 @@
         <!-- Share Link -->
         <div id="screen-share" class="screen">
             <div class="card text-center">
-                <h2>거래가 생성되었습니다</h2>
-                <p>아래 링크를 구매자에게 공유하세요:</p>
+                <h2>Trade Created Successfully</h2>
+                <p>Share the link below with the buyer.</p>
                 <div class="share-link">
                     <input type="text" id="share-url" readonly>
-                    <button class="btn btn-secondary" onclick="copyLink()">복사</button>
+                    <button class="btn btn-secondary" onclick="copyLink()">Copy</button>
                 </div>
                 <p style="color:var(--text2); font-size:14px; margin-bottom:16px;">
-                    거래 상대방에게 링크를 전달해 주세요.<br>
-                    상대방이 참여하면 자동으로 거래 화면으로 이동합니다.
+                    Please share the link with the buyer.<br>
+                    Once they join, you will be redirected to the trade screen automatically.
                 </p>
-                <button class="btn btn-primary" onclick="goToTrade()">거래 현황 보기</button>
+                <button class="btn btn-primary" onclick="goToTrade()">Go to Trade</button>
             </div>
         </div>
 
@@ -106,37 +106,37 @@
         <div id="screen-trade" class="screen">
             <div class="card">
                 <div class="trade-header">
-                    <h2>거래 상세</h2>
+                    <h2>Trade Details</h2>
                     <span id="trade-status-badge" class="badge">-</span>
                 </div>
 
                 <div class="trade-info">
                     <div class="info-row">
-                        <span>거래 ID</span><span id="t-id">-</span>
+                        <span>Trade ID</span><span id="t-id">-</span>
                     </div>
                     <div class="info-row">
-                        <span>USDC 수량</span><span id="t-amount">-</span>
+                        <span>USDC Amount</span><span id="t-amount">-</span>
                     </div>
                     <div class="info-row">
-                        <span>총 금액</span><span id="t-total">-</span>
+                        <span>Total Price</span><span id="t-total">-</span>
                     </div>
                     <div class="info-row">
-                        <span>판매자 지갑</span><span id="t-seller" class="mono">-</span>
+                        <span>Seller Wallet</span><span id="t-seller" class="mono">-</span>
                     </div>
                     <div class="info-row">
-                        <span>구매자 지갑</span><span id="t-buyer" class="mono">-</span>
+                        <span>Buyer Wallet</span><span id="t-buyer" class="mono">-</span>
                     </div>
                     <div class="info-row" id="row-escrow-tx" style="display:none">
-                        <span>에스크로 TX</span><span id="t-escrow-tx" class="mono">-</span>
+                        <span>Escrow TX</span><span id="t-escrow-tx" class="mono">-</span>
                     </div>
                     <div class="info-row" id="row-release-tx" style="display:none">
-                        <span>릴리즈 TX</span><span id="t-release-tx" class="mono">-</span>
+                        <span>Release TX</span><span id="t-release-tx" class="mono">-</span>
                     </div>
                     <div class="info-row" id="row-bank" style="display:none">
-                        <span>입금 계좌</span><span id="t-bank">-</span>
+                        <span>Bank Account</span><span id="t-bank">-</span>
                     </div>
                     <div class="info-row" id="row-expires" style="display:none">
-                        <span>남은 시간</span><span id="t-expires">-</span>
+                        <span>Time Remaining</span><span id="t-expires">-</span>
                     </div>
                 </div>
 
@@ -145,11 +145,11 @@
 
                 <!-- Progress -->
                 <div class="progress-steps">
-                    <div class="step" id="step-created">생성됨</div>
-                    <div class="step" id="step-joined">참여</div>
-                    <div class="step" id="step-usdc_escrowed">USDC 에스크로</div>
-                    <div class="step" id="step-fiat_sent">KRW 입금</div>
-                    <div class="step" id="step-completed">완료</div>
+                    <div class="step" id="step-created">Created</div>
+                    <div class="step" id="step-joined">Joined</div>
+                    <div class="step" id="step-usdc_escrowed">USDC in Escrow</div>
+                    <div class="step" id="step-fiat_sent">KRW Payment</div>
+                    <div class="step" id="step-completed">Completed</div>
                 </div>
             </div>
         </div>
@@ -157,14 +157,14 @@
         <!-- Join Form (for buyer) -->
         <div id="screen-join" class="screen">
             <div class="card">
-                <h2>거래 참여</h2>
+                <h2>Join This Trade</h2>
                 <div class="trade-info" id="join-info"></div>
                 <form id="join-form" onsubmit="joinTrade(event)">
                     <div class="form-group">
-                        <label>구매자 지갑 주소 (Polygon)</label>
-                        <input type="text" id="buyer-wallet" placeholder="0x..." required>
+                        <label>Buyer Wallet Address (Polygon)</label>
+                        <input type="text" id="buyer-wallet" placeholder="Enter buyer wallet address" required>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-block">거래 참여</button>
+                    <button type="submit" class="btn btn-primary btn-block">Confirm & Join Trade</button>
                 </form>
             </div>
         </div>
