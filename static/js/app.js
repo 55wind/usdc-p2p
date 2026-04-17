@@ -288,25 +288,35 @@ function updateTradeUI(trade) {
 // ---- Reload trade after on-chain tx ----
 
 function reloadTradeAfterTx() {
-    // Poll every 2 seconds, reload UI each time so user sees latest state
+    // Poll every 1 second for up to 60 seconds. Backend escrow monitor polls
+    // the chain every 5s, so we need a window wider than that plus slack.
     let attempts = 0;
-    const maxAttempts = 15; // 30 seconds max
+    const maxAttempts = 60;
+    const startStatus = currentTrade.status;
+
+    const primaryBtn = document.querySelector('#actions .btn-primary, #actions .btn-green, #actions .btn-red');
+    if (primaryBtn) {
+        primaryBtn.disabled = true;
+        primaryBtn.textContent = 'Confirming on-chain...';
+    }
 
     const poll = setInterval(async () => {
         attempts++;
         try {
             const trade = await api('GET', `/trades/${currentTrade.id}`);
-            if (trade.status !== currentTrade.status || attempts >= maxAttempts) {
+            if (trade.status !== startStatus) {
                 clearInterval(poll);
                 currentTrade = trade;
                 updateTradeUI(trade);
+                return;
             }
         } catch (e) { /* ignore */ }
         if (attempts >= maxAttempts) {
             clearInterval(poll);
-            loadTrade(currentTrade.id);
+            // Last-resort: hard reload so user never stays stuck on stale UI.
+            window.location.reload();
         }
-    }, 2000);
+    }, 1000);
 }
 
 // ---- Escrow interactions (MetaMask) ----
@@ -349,7 +359,6 @@ async function depositToEscrow() {
         if (btn) btn.textContent = 'Waiting for Deposit transaction...';
         await depositTx.wait();
 
-        alert('USDC deposited into escrow successfully!');
         reloadTradeAfterTx();
     } catch (err) {
         alert('Escrow deposit failed: ' + (err.reason || err.message));
@@ -383,7 +392,6 @@ async function confirmFiatOnChain() {
         if (btn) btn.textContent = 'Waiting for transaction confirmation...';
         await tx.wait();
 
-        alert('Payment confirmed! Recorded on-chain.');
         reloadTradeAfterTx();
     } catch (err) {
         alert('Payment confirmation failed: ' + (err.reason || err.message));
@@ -417,7 +425,6 @@ async function releaseFromEscrow() {
         if (btn) btn.textContent = 'Waiting for Release transaction...';
         await tx.wait();
 
-        alert('USDC released successfully!');
         reloadTradeAfterTx();
     } catch (err) {
         alert('Release failed: ' + (err.reason || err.message));
@@ -451,7 +458,6 @@ async function refundFromEscrow() {
         if (btn) btn.textContent = 'Waiting for Refund transaction...';
         await tx.wait();
 
-        alert('USDC refunded successfully!');
         reloadTradeAfterTx();
     } catch (err) {
         alert('Refund failed: ' + (err.reason || err.message));
@@ -485,7 +491,6 @@ async function claimByBuyer() {
         if (btn) btn.textContent = 'Waiting for transaction confirmation...';
         await tx.wait();
 
-        alert('USDC reclaimed successfully!');
         reloadTradeAfterTx();
     } catch (err) {
         alert('USDC reclaim failed: ' + (err.reason || err.message));
