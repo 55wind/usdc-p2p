@@ -12,7 +12,6 @@ from database import DB_PATH
 
 logger = logging.getLogger(__name__)
 
-# WebSocket connections per trade: {trade_id: set of websockets}
 connections: Dict[str, Set[WebSocket]] = {}
 
 
@@ -28,7 +27,6 @@ def unregister_ws(trade_id: str, ws: WebSocket):
 
 
 async def notify_trade_update(trade_id: str, trade: dict):
-    """Send trade update to all connected WebSocket clients."""
     if trade_id not in connections:
         return
     message = json.dumps({"type": "trade_update", "trade": trade})
@@ -43,7 +41,7 @@ async def notify_trade_update(trade_id: str, trade: dict):
 
 
 async def run_timeout_checker():
-    """Background task to expire trades that exceeded their deadline."""
+    """Expire stale `open` listings/trades that exceeded their deadline."""
     while True:
         try:
             now = datetime.now(timezone.utc).isoformat()
@@ -51,21 +49,28 @@ async def run_timeout_checker():
                 db.row_factory = aiosqlite.Row
                 rows = await db.execute_fetchall(
                     """SELECT * FROM trades
-                       WHERE expires_at IS NOT NULL AND expires_at < ? AND status NOT IN ('completed', 'expired', 'cancelled', 'refunded')""",
+                       WHERE expires_at IS NOT NULL AND expires_at < ?
+                       AND status NOT IN ('released', 'refunded', 'expired', 'cancelled')""",
                     (now,),
                 )
                 for row in rows:
                     trade = dict(row)
                     trade_id = trade["id"]
-                    await db.execute(
-                        "UPDATE trades SET status = 'expired', expires_at = NULL WHERE id = ?",
-                        (trade_id,),
-                    )
-                    await db.commit()
-                    trade["status"] = "expired"
-                    trade["expires_at"] = None
-                    await notify_trade_update(trade_id, trade)
-                    logger.info(f"Trade {trade_id} expired")
+                    new_status = "expired" if trade["status"] == "open" else trade["status"]
+                    if new_status == "expired":
+                        await db.execute(
+                            "UPDATE trades SET status='expired', expires_at=NULL WHERE id=?",
+                            (trade_id,),
+                        )
+                        await db.execute(
+                            "UPDATE listings SET status='expired', updated_at=? WHERE trade_id=?",
+                            (now, trade_id),
+                        )
+                        await db.commit()
+                        trade["status"] = "expired"
+                        trade["expires_at"] = None
+                        await notify_trade_update(trade_id, trade)
+                        logger.info(f"Trade {trade_id} expired")
         except Exception as e:
             logger.error(f"Timeout checker error: {e}")
 

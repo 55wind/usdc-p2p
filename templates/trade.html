@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Trade — Lumos{% endblock %}
+{% block content %}
+<div class="container max-w-3xl" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <a href="/marketplace" class="text-sm text-muted">← Back to marketplace</a>
+
+  <div id="trade-loading" class="card mt-4">
+    <div class="card-body"><div class="skeleton" style="height: 8rem;"></div></div>
+  </div>
+
+  <div id="trade-root" class="hidden">
+    <!-- Header card -->
+    <div class="card mt-4">
+      <div class="card-body">
+        <div class="row-between mb-4">
+          <div class="row gap-3">
+            <div class="avatar" style="width:2.5rem;height:2.5rem;border-radius:9999px;background:var(--secondary);display:grid;place-items:center;">👤</div>
+            <div>
+              <div class="font-semibold" id="t-nickname">Seller</div>
+              <div class="text-xs text-muted" id="t-seller-short">—</div>
+            </div>
+          </div>
+          <span id="t-status" class="badge badge-muted">—</span>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-tile">
+            <div class="summary-tile-label">Buyer receives</div>
+            <div class="summary-tile-value"><span id="t-amount">—</span> USDC</div>
+          </div>
+          <div class="summary-tile">
+            <div class="summary-tile-label">Price / USDC</div>
+            <div class="summary-tile-value">₩<span id="t-price">—</span></div>
+          </div>
+          <div class="summary-tile">
+            <div class="summary-tile-label">Total</div>
+            <div class="summary-tile-value text-gradient-gold">₩<span id="t-total">—</span></div>
+          </div>
+        </div>
+
+        <div class="kv-row"><span>Seller deposits</span><span><strong id="t-deposit">—</strong> USDC <span class="text-muted text-xs">(amount + fee)</span></span></div>
+        <div class="kv-row"><span>Platform fee</span><span><span id="t-fee">—</span> USDC</span></div>
+        <div class="kv-row"><span>Trade ID</span><span class="font-mono text-xs" id="t-id">—</span></div>
+        <div class="kv-row hidden" id="row-buyer"><span>Buyer wallet</span><span class="font-mono text-xs break-all" id="t-buyer">—</span></div>
+        <div class="kv-row hidden" id="row-bank"><span>Send to</span><span><strong id="t-bank">—</strong></span></div>
+        <div class="kv-row hidden" id="row-deposit-tx"><span>Deposit tx</span><span><a id="t-deposit-tx" class="tx-link" target="_blank" rel="noopener">—</a></span></div>
+        <div class="kv-row hidden" id="row-release-tx"><span>Release tx</span><span><a id="t-release-tx" class="tx-link" target="_blank" rel="noopener">—</a></span></div>
+        <div class="kv-row hidden" id="row-expires"><span>Time remaining</span><span id="t-expires">—</span></div>
+
+        <!-- Progress -->
+        <div class="steps">
+          <div class="step" data-step="open">Open</div>
+          <div class="step" data-step="joined">Joined</div>
+          <div class="step" data-step="locked">Locked</div>
+          <div class="step" data-step="paid">Paid</div>
+          <div class="step" data-step="released">Released</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onboarding gate (rendered above actions when there's a wallet/network/balance issue) -->
+    <div id="onboarding" class="mt-4"></div>
+
+    <!-- Action area (state-driven) -->
+    <div id="actions" class="mt-4"></div>
+
+    <!-- Message from seller -->
+    <div id="row-message" class="card mt-4 hidden">
+      <div class="card-body">
+        <div class="text-xs text-muted mb-1">Message from seller</div>
+        <div id="t-message"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<script>
+  window.LUMOS_TRADE = {
+    tradeId: {{ (trade_id or "")|tojson }},
+    listingId: {{ (listing_id or "")|tojson }},
+  };
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/trade.js"></script>
+{% endblock %}

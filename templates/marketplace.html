@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% set active_page = 'marketplace' %}
+{% block title %}Marketplace — Lumos{% endblock %}
+{% block content %}
+<div class="market-banner">
+  <div class="container market-banner-row">
+    <span aria-hidden="true">🛒</span>
+    <span class="font-semibold">You are buying USDC.</span>
+    <span class="text-muted">Browse open seller listings below.</span>
+  </div>
+</div>
+
+<div class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <div class="row-between mb-6">
+    <div>
+      <h1 class="text-3xl font-display">Marketplace</h1>
+      <p class="text-muted text-sm mt-1">Active USDC sell listings on Polygon</p>
+    </div>
+    <a href="/sell" class="btn btn-primary">+ Create Sell Order</a>
+  </div>
+
+  <div class="filter-card mb-6">
+    <div class="row mb-2" style="align-items: center;">
+      <span class="font-semibold text-sm">Filters</span>
+    </div>
+    <div class="filter-grid">
+      <div>
+        <label class="label-muted">Min Amount (USDC)</label>
+        <input class="input" id="f-min-amount" type="number" placeholder="0" step="any" />
+      </div>
+      <div>
+        <label class="label-muted">Max Amount (USDC)</label>
+        <input class="input" id="f-max-amount" type="number" placeholder="∞" step="any" />
+      </div>
+      <div>
+        <label class="label-muted">Min Price (₩/USDC)</label>
+        <input class="input" id="f-min-price" type="number" placeholder="0" step="any" />
+      </div>
+      <div>
+        <label class="label-muted">Max Price (₩/USDC)</label>
+        <input class="input" id="f-max-price" type="number" placeholder="∞" step="any" />
+      </div>
+      <div>
+        <label class="label-muted">Sort</label>
+        <select id="f-sort" class="select">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="price_low">Price (low → high)</option>
+          <option value="price_high">Price (high → low)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div id="listing-grid" class="listing-grid"></div>
+
+  <div id="empty" class="empty-state hidden">
+    <p class="text-lg font-semibold text-muted">No active sell listings yet.</p>
+    <p class="text-sm text-muted mt-1">Be the first to create one.</p>
+    <a href="/sell" class="btn btn-primary mt-6">Create Sell Order</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/marketplace.js"></script>
+{% endblock %}

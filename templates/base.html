@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>{% block title %}Lumos — USDC P2P Marketplace{% endblock %}</title>
+  <meta name="description" content="Pay Korean services with USDC. A unified P2P marketplace + escrow on Polygon." />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="container header-row">
+        <a href="/" class="brand">
+          <span class="brand-mark">L</span>
+          <span>Lumos</span>
+        </a>
+        <nav class="nav">
+          <a href="/" class="nav-link {% if active_page == 'home' %}active{% endif %}">Home</a>
+          <a href="/marketplace" class="nav-link {% if active_page == 'marketplace' %}active{% endif %}">Marketplace</a>
+          <a href="/sell" class="nav-link {% if active_page == 'sell' %}active{% endif %}">Sell USDC</a>
+        </nav>
+        <div class="header-actions">
+          <a href="/marketplace" class="btn btn-ghost btn-sm">Buy</a>
+          <a href="/sell" class="btn btn-primary btn-sm">Create Sell Order</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-col">
+            <div class="brand mb-2">
+              <span class="brand-mark">L</span>
+              <span>Lumos</span>
+            </div>
+            <p>Pay Korean services with USDC — peer-to-peer, secured by on-chain escrow on Polygon.</p>
+          </div>
+          <div class="footer-col">
+            <h4>Platform</h4>
+            <ul>
+              <li><a href="/marketplace">Marketplace</a></li>
+              <li><a href="/sell">Sell USDC</a></li>
+            </ul>
+          </div>
+          <div class="footer-col">
+            <h4>Network</h4>
+            <ul>
+              <li>Polygon mainnet only</li>
+              <li>USDC (native)</li>
+            </ul>
+          </div>
+          <div class="footer-col">
+            <h4>Legal</h4>
+            <p>Lumos is a non-custodial protocol. All funds are held by the on-chain escrow contract until release.</p>
+          </div>
+        </div>
+        <div class="footer-bottom">© {{ year or "2026" }} Lumos. All rights reserved.</div>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    window.LUMOS = {
+      escrowAddress: {{ escrow_address|tojson }},
+      platformWallet: {{ platform_wallet|tojson }},
+      feeBps: {{ fee_bps|tojson }},
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.9.0/ethers.umd.min.js"></script>
+  <script src="/static/js/lumos.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

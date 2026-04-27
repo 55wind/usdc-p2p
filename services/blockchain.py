@@ -12,7 +12,6 @@ from database import DB_PATH
 
 logger = logging.getLogger(__name__)
 
-# Load escrow ABI
 ABI_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "abi", "USDCEscrow.json")
 with open(ABI_PATH) as f:
     ESCROW_ABI = json.load(f)
@@ -21,16 +20,10 @@ POLL_INTERVAL = 5  # seconds
 
 
 def uuid_to_bytes32(uuid_str: str) -> bytes:
-    """Convert UUID string to bytes32 (remove hyphens, hex decode, zero-pad to 32 bytes)."""
+    """UUID → bytes32 (right-padded with zeros)."""
     hex_str = uuid_str.replace("-", "")
     raw = bytes.fromhex(hex_str)
     return raw.ljust(32, b"\x00")
-
-
-def bytes32_to_uuid(b: bytes) -> str:
-    """Convert bytes32 back to UUID string."""
-    hex_str = b[:16].hex()
-    return f"{hex_str[:8]}-{hex_str[8:12]}-{hex_str[12:16]}-{hex_str[16:20]}-{hex_str[20:32]}"
 
 
 async def run_escrow_monitor():
@@ -44,103 +37,87 @@ async def run_escrow_monitor():
         address=Web3.to_checksum_address(ESCROW_CONTRACT_ADDRESS),
         abi=ESCROW_ABI,
     )
-
-    logger.info(f"Escrow monitor started (state polling), contract={ESCROW_CONTRACT_ADDRESS}")
+    logger.info(f"Escrow monitor started, contract={ESCROW_CONTRACT_ADDRESS}")
 
     while True:
         try:
             async with aiosqlite.connect(DB_PATH) as db:
                 db.row_factory = aiosqlite.Row
-
-                # Get all trades that might have on-chain updates
                 rows = await db.execute_fetchall(
-                    "SELECT * FROM trades WHERE status IN ('joined', 'usdc_escrowed', 'fiat_sent')"
+                    "SELECT * FROM trades WHERE status IN ('joined', 'locked', 'paid')"
                 )
-
                 for row in rows:
                     trade = dict(row)
-                    trade_id = trade["id"]
-
                     try:
                         await _check_trade_state(contract, db, trade)
                     except Exception as ex:
-                        logger.warning(f"[{trade_id[:8]}] Error checking state: {ex}")
-
+                        logger.warning(f"[{trade['id'][:8]}] error: {ex}")
         except Exception as e:
             logger.error(f"Escrow monitor error: {e}")
-
         await asyncio.sleep(POLL_INTERVAL)
 
 
 async def _check_trade_state(contract, db, trade):
-    """Check on-chain state for a single trade and update DB if changed."""
+    """Translate on-chain state → DB status (open/joined/locked/paid/released/refunded)."""
     from services.escrow import notify_trade_update
 
     trade_id = trade["id"]
     trade_id_bytes = uuid_to_bytes32(trade_id)
 
-    # Query on-chain: trades(bytes32) returns (seller, buyer, amount, active, fiatConfirmed, fiatConfirmedAt)
+    # New ABI: trades(bytes32) → (seller, buyer, amount, fee, active, fiatConfirmed, fiatConfirmedAt)
     on_chain = contract.functions.trades(trade_id_bytes).call()
-    seller, buyer, amount, active, fiat_confirmed, fiat_confirmed_at = on_chain
+
+    # Tolerate older ABIs without the fee field.
+    if len(on_chain) >= 7:
+        seller, buyer, amount, _fee, active, fiat_confirmed, _fc_at = on_chain
+    else:
+        seller, buyer, amount, active, fiat_confirmed, _fc_at = on_chain
+
+    if amount == 0:
+        return
 
     now = datetime.now(timezone.utc).isoformat()
-    new_status = None
-
-    # Determine the correct status based on on-chain state
-    # Handle all possible on-chain states regardless of current DB status
-    if amount == 0:
-        # No deposit on-chain yet, nothing to do
-        return
 
     if not active:
-        # Trade is closed on-chain
-        if fiat_confirmed:
-            # Fiat was confirmed → released or buyer claimed → completed
-            new_status = "completed"
-        else:
-            # Fiat never confirmed → refunded
-            new_status = "refunded"
+        new_status = "released" if fiat_confirmed else "refunded"
     elif fiat_confirmed:
-        # Active + fiat confirmed → fiat_sent
-        new_status = "fiat_sent"
+        new_status = "paid"
     else:
-        # Active + no fiat confirmed → usdc_escrowed
-        new_status = "usdc_escrowed"
+        new_status = "locked"
 
-    # Only update if status actually changed
     if new_status == trade["status"]:
         return
+    logger.info(f"[{trade_id[:8]}] {trade['status']} → {new_status}")
 
-    logger.info(f"[{trade_id[:8]}] State change: {trade['status']} -> {new_status}")
-
-    if new_status == "usdc_escrowed":
+    if new_status == "locked":
         expires = (datetime.now(timezone.utc) + timedelta(minutes=60)).isoformat()
         await db.execute(
-            """UPDATE trades SET status = 'usdc_escrowed', escrowed_at = ?,
-               expires_at = ? WHERE id = ?""",
+            "UPDATE trades SET status='locked', locked_at=?, expires_at=? WHERE id=?",
             (now, expires, trade_id),
         )
-    elif new_status == "fiat_sent":
+    elif new_status == "paid":
         await db.execute(
-            """UPDATE trades SET status = 'fiat_sent', fiat_sent_at = ?,
-               expires_at = NULL WHERE id = ?""",
+            "UPDATE trades SET status='paid', paid_at=?, expires_at=NULL WHERE id=?",
             (now, trade_id),
         )
-    elif new_status == "completed":
+    elif new_status == "released":
         await db.execute(
-            """UPDATE trades SET status = 'completed', completed_at = ?,
-               expires_at = NULL WHERE id = ?""",
+            "UPDATE trades SET status='released', released_at=?, expires_at=NULL WHERE id=?",
             (now, trade_id),
         )
     elif new_status == "refunded":
         await db.execute(
-            """UPDATE trades SET status = 'refunded', completed_at = ?,
-               expires_at = NULL WHERE id = ?""",
+            "UPDATE trades SET status='refunded', released_at=?, expires_at=NULL WHERE id=?",
             (now, trade_id),
         )
 
-    if new_status:
-        await db.commit()
-        rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
-        updated_trade = dict(rows[0])
-        await notify_trade_update(trade_id, updated_trade)
+    # Mirror onto listing too.
+    await db.execute(
+        "UPDATE listings SET status=?, updated_at=? WHERE trade_id=?",
+        (new_status, now, trade_id),
+    )
+    await db.commit()
+
+    rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
+    updated = dict(rows[0])
+    await notify_trade_update(trade_id, updated)

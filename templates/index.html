@@ -1,176 +1,61 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>USDC-KRW P2P Trading</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <nav class="navbar">
-        <div class="nav-brand" onclick="navigateTo('home')">
-            <span class="logo">◈</span> USDC P2P
-        </div>
-    </nav>
+{% extends "base.html" %}
+{% set active_page = 'home' %}
+{% block content %}
+<section class="hero">
+  <div class="container hero-inner">
+    <h1>Pay Korean services with USDC. <span class="text-gradient-gold">Simple. Secure.</span></h1>
+    <p>Lumos is a unified P2P marketplace and escrow on Polygon. Sellers list, buyers join, the contract holds — funds settle the moment both sides confirm.</p>
+    <div class="hero-actions">
+      <a href="/marketplace" class="btn btn-primary btn-lg">Buy USDC →</a>
+      <a href="/sell" class="btn btn-outline-light btn-lg">Sell USDC</a>
+    </div>
+  </div>
+</section>
 
-    <main class="container">
-        <!-- Home Screen -->
-        <div id="screen-home" class="screen active">
-            <div class="hero">
-                <h1>USDC-KRW P2P Trading</h1>
-                <p>Trade USDC safely on the Polygon network</p>
-                <div class="hero-buttons">
-                    <button class="btn btn-sell btn-lg" onclick="navigateTo('sell')">SELL USDC</button>
-                    <button class="btn btn-buy btn-lg" onclick="navigateTo('buy-intro')">BUY USDC</button>
-                </div>
-            </div>
-        </div>
+<section class="section">
+  <div class="container">
+    <div class="text-center">
+      <h2>How Lumos Works</h2>
+      <p class="section-eyebrow">A single page handles every step. No copy-paste links, no separate escrow site.</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="step-num">01</div>
+        <h3 class="text-lg mt-2">Seller Lists</h3>
+        <p class="text-sm text-muted mt-2">Set the USDC amount the buyer will receive, the KRW price, and the bank to receive payment. The trade is created in the same step.</p>
+      </div>
+      <div class="feature-card">
+        <div class="step-num">02</div>
+        <h3 class="text-lg mt-2">Buyer Joins</h3>
+        <p class="text-sm text-muted mt-2">Connect MetaMask, join the trade. The seller deposits USDC into escrow on Polygon, the bank info is revealed.</p>
+      </div>
+      <div class="feature-card">
+        <div class="step-num">03</div>
+        <h3 class="text-lg mt-2">Settle On-Chain</h3>
+        <p class="text-sm text-muted mt-2">Buyer wires KRW and confirms. Seller releases — the contract sends <strong>amount</strong> to buyer and <strong>fee</strong> to platform.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-        <!-- Buy Intro (placeholder - buyer enters via shared link) -->
-        <div id="screen-buy-intro" class="screen">
-            <div class="card text-center">
-                <h2>Buy USDC</h2>
-                <p style="color:var(--text2); margin-bottom:24px;">
-                    To buy USDC, you need to receive a trade link from a seller.<br>
-                    Join the trade using the link shared by the seller.
-                </p>
-                <button class="btn btn-secondary" onclick="navigateTo('home')">Go Back</button>
-            </div>
-        </div>
-
-        <!-- Sell Form -->
-        <div id="screen-sell" class="screen">
-            <div class="card">
-                <h2>Create USDC Sell Order</h2>
-                <form id="sell-form" onsubmit="createTrade(event)">
-                    <div class="form-group">
-                        <label>Seller Wallet Address (Polygon)</label>
-                        <input type="text" id="seller-wallet" placeholder="0x..." required>
-                    </div>
-                    <div class="form-group">
-                        <label>USDC Amount</label>
-                        <input type="number" id="usdc-amount" step="0.01" min="1" placeholder="100" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Total Price (KRW)</label>
-                        <input type="number" id="total-krw" step="1" min="1" placeholder="135000" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Bank</label>
-                        <select id="bank-name" required>
-                            <option value="">Select Bank</option>
-                            <option value="KB국민">KB국민은행</option>
-                            <option value="신한">신한은행</option>
-                            <option value="우리">우리은행</option>
-                            <option value="하나">하나은행</option>
-                            <option value="IBK기업">IBK기업은행</option>
-                            <option value="NH농협">NH농협은행</option>
-                            <option value="카카오뱅크">카카오뱅크</option>
-                            <option value="토스뱅크">토스뱅크</option>
-                            <option value="SC제일">SC제일은행</option>
-                            <option value="대구">대구은행</option>
-                            <option value="부산">부산은행</option>
-                            <option value="경남">경남은행</option>
-                            <option value="광주">광주은행</option>
-                            <option value="전북">전북은행</option>
-                            <option value="제주">제주은행</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Bank Account Number</label>
-                        <input type="text" id="bank-account" placeholder="Enter Bank Account Number" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-block">Create Order</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- Share Link -->
-        <div id="screen-share" class="screen">
-            <div class="card text-center">
-                <h2>Trade Created Successfully</h2>
-                <p>Share the link below with the buyer.</p>
-                <div class="share-link">
-                    <input type="text" id="share-url" readonly>
-                    <button class="btn btn-secondary" onclick="copyLink()">Copy</button>
-                </div>
-                <p style="color:var(--text2); font-size:14px; margin-bottom:16px;">
-                    Please share the link with the buyer.<br>
-                    Once they join, you will be redirected to the trade screen automatically.
-                </p>
-                <button class="btn btn-primary" onclick="goToTrade()">Go to Trade</button>
-            </div>
-        </div>
-
-        <!-- Trade Status -->
-        <div id="screen-trade" class="screen">
-            <div class="card">
-                <div class="trade-header">
-                    <h2>Trade Details</h2>
-                    <span id="trade-status-badge" class="badge">-</span>
-                </div>
-
-                <div class="trade-info">
-                    <div class="info-row">
-                        <span>Trade ID</span><span id="t-id">-</span>
-                    </div>
-                    <div class="info-row">
-                        <span>USDC Amount</span><span id="t-amount">-</span>
-                    </div>
-                    <div class="info-row">
-                        <span>Total Price</span><span id="t-total">-</span>
-                    </div>
-                    <div class="info-row">
-                        <span>Seller Wallet</span><span id="t-seller" class="mono">-</span>
-                    </div>
-                    <div class="info-row">
-                        <span>Buyer Wallet</span><span id="t-buyer" class="mono">-</span>
-                    </div>
-                    <div class="info-row" id="row-escrow-tx" style="display:none">
-                        <span>Escrow TX</span><span id="t-escrow-tx" class="mono">-</span>
-                    </div>
-                    <div class="info-row" id="row-release-tx" style="display:none">
-                        <span>Release TX</span><span id="t-release-tx" class="mono">-</span>
-                    </div>
-                    <div class="info-row" id="row-bank" style="display:none">
-                        <span>Bank Account</span><span id="t-bank">-</span>
-                    </div>
-                    <div class="info-row" id="row-expires" style="display:none">
-                        <span>Time Remaining</span><span id="t-expires">-</span>
-                    </div>
-                </div>
-
-                <!-- Status-specific actions -->
-                <div id="actions" class="actions"></div>
-
-                <!-- Progress -->
-                <div class="progress-steps">
-                    <div class="step" id="step-created">Created</div>
-                    <div class="step" id="step-joined">Joined</div>
-                    <div class="step" id="step-usdc_escrowed">USDC in Escrow</div>
-                    <div class="step" id="step-fiat_sent">KRW Payment</div>
-                    <div class="step" id="step-completed">Completed</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Join Form (for buyer) -->
-        <div id="screen-join" class="screen">
-            <div class="card">
-                <h2>Join This Trade</h2>
-                <div class="trade-info" id="join-info"></div>
-                <form id="join-form" onsubmit="joinTrade(event)">
-                    <div class="form-group">
-                        <label>Buyer Wallet Address (Polygon)</label>
-                        <input type="text" id="buyer-wallet" placeholder="Enter buyer wallet address" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-block">Confirm & Join Trade</button>
-                </form>
-            </div>
-        </div>
-    </main>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.9.0/ethers.umd.min.js"></script>
-    <script src="/static/js/app.js"></script>
-</body>
-</html>
+<section class="trust-band">
+  <div class="container max-w-3xl text-center">
+    <h2>Built for confidence</h2>
+    <p class="section-eyebrow">Buyer always receives exactly the listed USDC amount. Fee (0.5%) is paid by the seller on top.</p>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">Polygon</div>
+        <div class="stat-label">Native USDC, low fees</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">On-chain</div>
+        <div class="stat-label">Funds held by smart contract</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">0.5%</div>
+        <div class="stat-label">Flat fee, paid by seller</div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

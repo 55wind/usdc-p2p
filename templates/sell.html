@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% set active_page = 'sell' %}
+{% block title %}Create Sell Order — Lumos{% endblock %}
+{% block content %}
+<div class="container max-w-2xl" style="padding-top: 2rem; padding-bottom: 4rem;">
+  <h1 class="text-3xl font-display mb-2">Create Sell Order</h1>
+  <p class="text-muted mb-6">List your USDC for sale. The trade is created automatically — no separate escrow link needed.</p>
+
+  <div class="alert alert-warn mb-6">
+    <span aria-hidden="true">ℹ️</span>
+    <div>
+      <strong>You will receive KRW.</strong> The buyer pays you in KRW; you deposit USDC into on-chain escrow. The contract releases USDC only after the buyer confirms payment.
+      Fee (0.5%) is added on top of the buyer-receives amount and paid by you on release.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Listing details</div></div>
+    <div class="card-body">
+      <form id="sell-form">
+        <div class="form-group">
+          <label class="label" for="seller-wallet">Seller wallet (Polygon)</label>
+          <input class="input" id="seller-wallet" placeholder="0x..." required />
+          <div class="help-text">Your wallet must be on Polygon. POL is needed for gas.</div>
+        </div>
+
+        <div class="row gap-4" style="display:grid; grid-template-columns: 1fr 1fr;">
+          <div class="form-group">
+            <label class="label" for="amount">Buyer receives (USDC)</label>
+            <input class="input" id="amount" type="number" step="any" min="1" placeholder="100" required />
+          </div>
+          <div class="form-group">
+            <label class="label" for="price">Price per USDC (₩)</label>
+            <input class="input" id="price" type="number" step="any" min="1" placeholder="1350" required />
+          </div>
+        </div>
+
+        <div id="calc-card" class="card mb-4 hidden" style="background: var(--secondary); border: none;">
+          <div class="card-body" style="padding: 1rem;">
+            <div class="kv-row"><span>Buyer receives</span><span><strong id="calc-amount">0</strong> USDC</span></div>
+            <div class="kv-row"><span>Platform fee (<span id="calc-fee-pct">0.5</span>%)</span><span><strong id="calc-fee">0</strong> USDC</span></div>
+            <div class="kv-row"><span>You deposit</span><span class="text-gradient-gold font-bold" id="calc-deposit">0 USDC</span></div>
+            <div class="kv-row"><span>You receive</span><span class="font-bold" id="calc-krw">₩0</span></div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="label" for="bank-name">Bank</label>
+          <select id="bank-name" class="select" required>
+            <option value="">Select Bank</option>
+            <option>KB Kookmin</option>
+            <option>Shinhan</option>
+            <option>Woori</option>
+            <option>Hana</option>
+            <option>IBK</option>
+            <option>NH Nonghyup</option>
+            <option>Kakaobank</option>
+            <option>Tossbank</option>
+            <option>SC First</option>
+            <option>Daegu</option>
+            <option>Busan</option>
+            <option>Gyeongnam</option>
+            <option>Gwangju</option>
+            <option>Jeonbuk</option>
+            <option>Jeju</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="label" for="bank-account">Bank account number</label>
+          <input class="input" id="bank-account" placeholder="000-00-000000" required />
+        </div>
+        <div class="form-group">
+          <label class="label" for="bank-holder">Account holder name <span class="text-muted text-xs">(optional)</span></label>
+          <input class="input" id="bank-holder" placeholder="Hong Gildong" />
+        </div>
+        <div class="form-group">
+          <label class="label" for="nickname">Display nickname <span class="text-muted text-xs">(optional)</span></label>
+          <input class="input" id="nickname" placeholder="Anonymous" maxlength="50" />
+        </div>
+        <div class="form-group">
+          <label class="label" for="message">Message to buyer <span class="text-muted text-xs">(optional)</span></label>
+          <textarea class="textarea" id="message" placeholder="Anything the buyer should know..." maxlength="500"></textarea>
+        </div>
+
+        <div class="alert alert-info mb-4">
+          <span aria-hidden="true">🔒</span>
+          <div>
+            Polygon-only. Make sure your wallet has a small amount of <strong>POL</strong> for gas before you publish.
+          </div>
+        </div>
+
+        <button type="submit" id="submit-btn" class="btn btn-primary btn-block btn-lg">Publish sell order</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/sell.js"></script>
+{% endblock %}

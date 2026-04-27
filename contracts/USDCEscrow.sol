@@ -6,14 +6,19 @@ interface IERC20 {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
+/// @title USDCEscrow — P2P escrow with platform fee borne by the seller.
+/// @notice The seller deposits `amount + fee`. On release, the buyer receives
+///         exactly `amount` and the platform wallet receives `fee`.
 contract USDCEscrow {
     IERC20 public immutable usdc;
+    address public immutable platform;
     uint256 public constant AUTO_RELEASE_TIMEOUT = 24 hours;
 
     struct Trade {
         address seller;
         address buyer;
-        uint256 amount;
+        uint256 amount;          // net amount the buyer receives
+        uint256 fee;             // platform fee, paid on release
         bool active;
         bool fiatConfirmed;
         uint256 fiatConfirmedAt;
@@ -21,92 +26,98 @@ contract USDCEscrow {
 
     mapping(bytes32 => Trade) public trades;
 
-    event Deposited(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount);
+    event Deposited(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount, uint256 fee);
     event FiatConfirmed(bytes32 indexed tradeId, address indexed buyer);
-    event Released(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount);
+    event Released(bytes32 indexed tradeId, address indexed seller, address indexed buyer, uint256 amount, uint256 fee);
     event Refunded(bytes32 indexed tradeId, address indexed seller, uint256 amount);
     event BuyerClaimed(bytes32 indexed tradeId, address indexed buyer, uint256 amount);
 
-    constructor(address _usdc) {
+    constructor(address _usdc, address _platform) {
+        require(_platform != address(0), "platform=0");
         usdc = IERC20(_usdc);
+        platform = _platform;
     }
 
-    /// @notice 판매자가 USDC를 에스크로에 입금
-    function deposit(bytes32 tradeId, address buyer, uint256 amount) external {
-        require(amount > 0, "Amount must be > 0");
-        require(buyer != address(0), "Invalid buyer");
-        require(!trades[tradeId].active, "Trade already exists");
+    /// @notice Seller deposits `amount + fee` into escrow.
+    function deposit(bytes32 tradeId, address buyer, uint256 amount, uint256 fee) external {
+        require(amount > 0, "amount=0");
+        require(buyer != address(0), "buyer=0");
+        require(!trades[tradeId].active, "exists");
 
         trades[tradeId] = Trade({
             seller: msg.sender,
             buyer: buyer,
             amount: amount,
+            fee: fee,
             active: true,
             fiatConfirmed: false,
             fiatConfirmedAt: 0
         });
 
-        require(usdc.transferFrom(msg.sender, address(this), amount), "Transfer failed");
-
-        emit Deposited(tradeId, msg.sender, buyer, amount);
+        require(usdc.transferFrom(msg.sender, address(this), amount + fee), "transferFrom failed");
+        emit Deposited(tradeId, msg.sender, buyer, amount, fee);
     }
 
-    /// @notice 구매자가 KRW 송금 후 온체인에서 확인 (이후 refund 차단)
+    /// @notice Buyer marks fiat as sent (after this, refund is blocked).
     function confirmFiat(bytes32 tradeId) external {
         Trade storage t = trades[tradeId];
-        require(t.active, "Trade not active");
-        require(msg.sender == t.buyer, "Only buyer");
-        require(!t.fiatConfirmed, "Already confirmed");
+        require(t.active, "inactive");
+        require(msg.sender == t.buyer, "not buyer");
+        require(!t.fiatConfirmed, "already");
 
         t.fiatConfirmed = true;
         t.fiatConfirmedAt = block.timestamp;
-
         emit FiatConfirmed(tradeId, msg.sender);
     }
 
-    /// @notice 판매자가 USDC를 구매자에게 전송 (정상 완료)
+    /// @notice Seller releases USDC: buyer gets `amount`, platform gets `fee`.
     function release(bytes32 tradeId) external {
         Trade storage t = trades[tradeId];
-        require(t.active, "Trade not active");
-        require(msg.sender == t.seller, "Only seller");
+        require(t.active, "inactive");
+        require(msg.sender == t.seller, "not seller");
 
         t.active = false;
         uint256 amount = t.amount;
+        uint256 fee = t.fee;
         address buyer = t.buyer;
 
-        require(usdc.transfer(buyer, amount), "Transfer failed");
-
-        emit Released(tradeId, msg.sender, buyer, amount);
+        require(usdc.transfer(buyer, amount), "buyer transfer failed");
+        if (fee > 0) {
+            require(usdc.transfer(platform, fee), "fee transfer failed");
+        }
+        emit Released(tradeId, msg.sender, buyer, amount, fee);
     }
 
-    /// @notice 판매자가 USDC 환불 (fiat 확인 전에만 가능)
+    /// @notice Seller refunds (only before fiat confirmed). Returns full deposit.
     function refund(bytes32 tradeId) external {
         Trade storage t = trades[tradeId];
-        require(t.active, "Trade not active");
-        require(msg.sender == t.seller, "Only seller");
-        require(!t.fiatConfirmed, "Fiat confirmed, cannot refund");
+        require(t.active, "inactive");
+        require(msg.sender == t.seller, "not seller");
+        require(!t.fiatConfirmed, "fiat confirmed");
 
         t.active = false;
-        uint256 amount = t.amount;
-
-        require(usdc.transfer(t.seller, amount), "Transfer failed");
-
-        emit Refunded(tradeId, msg.sender, amount);
+        uint256 total = t.amount + t.fee;
+        require(usdc.transfer(t.seller, total), "refund failed");
+        emit Refunded(tradeId, msg.sender, total);
     }
 
-    /// @notice 구매자가 USDC 직접 회수 (fiat 확인 후 24시간 경과 + 판매자 미응답)
+    /// @notice Buyer reclaim if fiat was confirmed but seller never released.
     function claimByBuyer(bytes32 tradeId) external {
         Trade storage t = trades[tradeId];
-        require(t.active, "Trade not active");
-        require(msg.sender == t.buyer, "Only buyer");
-        require(t.fiatConfirmed, "Fiat not confirmed");
-        require(block.timestamp >= t.fiatConfirmedAt + AUTO_RELEASE_TIMEOUT, "Timeout not reached");
+        require(t.active, "inactive");
+        require(msg.sender == t.buyer, "not buyer");
+        require(t.fiatConfirmed, "fiat not confirmed");
+        require(block.timestamp >= t.fiatConfirmedAt + AUTO_RELEASE_TIMEOUT, "timeout");
 
         t.active = false;
         uint256 amount = t.amount;
+        uint256 fee = t.fee;
+        address buyer = t.buyer;
 
-        require(usdc.transfer(t.buyer, amount), "Transfer failed");
-
+        require(usdc.transfer(buyer, amount), "buyer transfer failed");
+        if (fee > 0) {
+            require(usdc.transfer(platform, fee), "fee transfer failed");
+        }
         emit BuyerClaimed(tradeId, msg.sender, amount);
     }
 }
