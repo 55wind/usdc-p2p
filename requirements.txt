@@ -5,3 +5,5 @@ web3==6.13.0
 pydantic==2.5.2
 jinja2==3.1.2
 python-dotenv==1.0.0
+setuptools>=68,<81  # web3 6.x still imports pkg_resources, removed in setuptools 81+
+

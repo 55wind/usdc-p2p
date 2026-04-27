@@ -120,27 +120,27 @@ window.LUMOS.getBalances = async function getBalances(account) {
   };
 };
 
-// Build a Transak-style "Buy USDC on Polygon" link with token/network/wallet pre-filled.
-// We use Transak's hosted widget — most wallets surface this CTA in MetaMask too.
+// "Buy USDC on Polygon" — MetaMask Portfolio's onramp aggregator.
+// Works without an API key and lets the user pick from multiple providers
+// (Transak, MoonPay, etc.) with token + chain + amount pre-filled.
 window.LUMOS.buyUsdcLink = (wallet, amount) => {
   const params = new URLSearchParams({
-    cryptoCurrencyCode: 'USDC',
-    network: 'polygon',
-    walletAddress: wallet || '',
-    defaultCryptoAmount: String(amount || ''),
-    isAutoFillUserData: 'true',
+    token: 'USDC',
+    chainId: '137',
   });
-  return `https://global.transak.com/?${params.toString()}`;
+  if (amount) params.set('amount', String(amount));
+  if (wallet) params.set('address', wallet);
+  return `https://portfolio.metamask.io/buy/build-quote?${params.toString()}`;
 };
 
 window.LUMOS.buyPolLink = (wallet) => {
   const params = new URLSearchParams({
-    cryptoCurrencyCode: 'MATIC',
-    network: 'polygon',
-    walletAddress: wallet || '',
-    defaultCryptoAmount: '5',
+    token: 'POL',
+    chainId: '137',
+    amount: '5',
   });
-  return `https://global.transak.com/?${params.toString()}`;
+  if (wallet) params.set('address', wallet);
+  return `https://portfolio.metamask.io/buy/build-quote?${params.toString()}`;
 };
 
 // Minimal toast (uses native alert as fallback for now; replaceable).
