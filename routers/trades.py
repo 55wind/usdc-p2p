@@ -24,12 +24,26 @@ def row_to_dict(row: aiosqlite.Row) -> dict:
     return dict(row)
 
 
+def _redact_bank(trade: dict) -> dict:
+    """Hide seller bank details until USDC is locked in escrow.
+
+    Without this, anyone with the trade ID could fetch bank account info
+    via the public API. Only revealed at status >= 'locked' so that buyers
+    only see it after the seller has actually committed funds.
+    """
+    if trade.get("status") not in ("locked", "paid"):
+        trade["bank_name"] = None
+        trade["bank_account"] = None
+        trade["bank_holder"] = None
+    return trade
+
+
 @router.get("/{trade_id}", response_model=TradeResponse)
 async def get_trade(trade_id: str, db=Depends(get_db)):
     rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
     if not rows:
         raise HTTPException(404, "Trade not found")
-    return TradeResponse(**row_to_dict(rows[0]))
+    return TradeResponse(**_redact_bank(row_to_dict(rows[0])))
 
 
 @router.post("/{trade_id}/join", response_model=TradeResponse)
@@ -61,5 +75,7 @@ async def join_trade(trade_id: str, body: TradeJoin, db=Depends(get_db)):
 
     rows = await db.execute_fetchall("SELECT * FROM trades WHERE id = ?", (trade_id,))
     trade = row_to_dict(rows[0])
-    await notify_trade_update(trade_id, trade)
-    return TradeResponse(**trade)
+    # Notify with the full record (WS goes only to listeners of this trade); the
+    # response over HTTP gets redacted because the trade just hit 'joined'.
+    await notify_trade_update(trade_id, _redact_bank(dict(trade)))
+    return TradeResponse(**_redact_bank(trade))

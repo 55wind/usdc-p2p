@@ -4,8 +4,13 @@
   const listingIdHint = (window.LUMOS_TRADE && window.LUMOS_TRADE.listingId) || '';
 
   let trade = null;
-  let role = null;          // 'seller' | 'buyer' (cached in localStorage)
-  let account = null;       // current wallet address
+  // role is derived (not stored): 'seller' | 'buyer' | 'guest' | 'outsider'
+  //   seller   = connected wallet == trade.seller_wallet
+  //   buyer    = connected wallet == trade.buyer_wallet
+  //   guest    = trade is still open and no wallet matches yet (anyone can join)
+  //   outsider = trade has a buyer already and the connected wallet is neither
+  // localStorage is only used as a hint when the wallet isn't connected yet
+  let account = null;
   let chainOk = false;
   let balances = { usdc: 0, pol: 0 };
   let ws = null;
@@ -28,12 +33,6 @@
       if (!tradeId) throw new Error('No trade specified.');
 
       trade = await LUMOS.api('GET', `/trades/${tradeId}`);
-      role = localStorage.getItem(`role_${trade.id}`);
-      // If role is unknown and the trade is still open, we are the buyer.
-      if (!role) {
-        role = 'buyer';
-        localStorage.setItem(`role_${trade.id}`, 'buyer');
-      }
 
       $('trade-loading').classList.add('hidden');
       $('trade-root').classList.remove('hidden');
@@ -70,6 +69,24 @@
     }
   }
 
+  // ---------- Role resolution ----------
+  function computedRole() {
+    const hint = localStorage.getItem(`role_${trade.id}`);
+    if (account) {
+      const lc = account.toLowerCase();
+      if (trade.seller_wallet && trade.seller_wallet.toLowerCase() === lc) return 'seller';
+      if (trade.buyer_wallet && trade.buyer_wallet.toLowerCase() === lc) return 'buyer';
+      // Wallet connected but doesn't match either party
+      if (trade.status === 'open' && !trade.buyer_wallet) return 'guest';
+      return 'outsider';
+    }
+    // No wallet connected yet — fall back to hint (UI shows Connect step)
+    if (hint === 'seller') return 'seller';
+    if (hint === 'buyer' && trade.buyer_wallet) return 'buyer';
+    if (trade.status === 'open' && !trade.buyer_wallet) return 'guest';
+    return 'outsider';
+  }
+
   // ---------- Render ----------
   function render() {
     renderHeader();
@@ -101,15 +118,17 @@
     sb.textContent = label;
     sb.className = `badge ${cls}`;
 
-    // Buyer wallet (revealed once joined)
-    if (trade.buyer_wallet) {
+    const role = computedRole();
+
+    // Buyer wallet — only visible to seller and the buyer themselves (never to outsiders)
+    if (trade.buyer_wallet && (role === 'seller' || role === 'buyer')) {
       $('row-buyer').classList.remove('hidden');
       $('t-buyer').textContent = trade.buyer_wallet;
     } else {
       $('row-buyer').classList.add('hidden');
     }
 
-    // Bank info — visible to buyer once funds are locked
+    // Bank info — only the actual buyer (wallet match) sees this, and only after funds locked
     const showBank = role === 'buyer' && ['locked', 'paid'].includes(trade.status);
     if (showBank && trade.bank_name) {
       $('row-bank').classList.remove('hidden');
@@ -162,7 +181,7 @@
   // ---------- Onboarding gate ----------
   // Determines what (if anything) needs to be resolved before the user can do
   // their next action. Mirrors the PDF spec section 6.
-  function neededFor(state) {
+  function neededFor(state, role) {
     // What balance is needed for the upcoming action?
     if (role === 'seller' && state === 'joined') {
       return { usdc: trade.total_deposit, pol: 0.5 };
@@ -173,12 +192,19 @@
     if (role === 'seller' && state === 'paid') {
       return { usdc: 0, pol: 0.5 }; // release tx
     }
+    if (role === 'guest' && state === 'open') {
+      return { usdc: 0, pol: 0.5 }; // join tx (cheap but still gas)
+    }
     return { usdc: 0, pol: 0 };
   }
 
   function renderOnboarding() {
     const root = $('onboarding');
     root.innerHTML = '';
+    const role = computedRole();
+
+    // Outsiders never see onboarding — they get a view-only message in renderActions.
+    if (role === 'outsider') return;
 
     // 1. MetaMask not installed
     if (!LUMOS.hasMetaMask()) {
@@ -225,7 +251,7 @@
     }
 
     // Role-specific balance gates depend on what action is next.
-    const need = neededFor(trade.status);
+    const need = neededFor(trade.status, role);
 
     // 4. USDC shortfall (seller, before deposit)
     if (need.usdc > 0 && balances.usdc < need.usdc) {
@@ -301,19 +327,37 @@
   function renderActions() {
     const root = $('actions');
     root.innerHTML = '';
+    const role = computedRole();
     const isSeller = role === 'seller';
     const isBuyer = role === 'buyer';
+    const isGuest = role === 'guest';
+    const isOutsider = role === 'outsider';
 
     // Onboarding may have rendered a gate above; if we don't have account/chain
     // yet, the action buttons stay hidden so users can't click into a failure.
     const onboardingResolved = LUMOS.hasMetaMask() && account && chainOk;
 
-    if (trade.status === 'open' && isBuyer) {
+    // Outsider — trade already has a buyer and you're not seller or buyer.
+    if (isOutsider) {
+      root.innerHTML = wrap(`
+        <div class="alert alert-info">
+          <span>🔒</span>
+          <div>
+            <strong>This trade is in progress between two other parties.</strong><br>
+            <span class="text-sm">You can view the public summary above, but bank details and actions are not available.</span>
+          </div>
+        </div>
+        <a href="/marketplace" class="btn btn-outline btn-block mt-3">Browse other listings</a>
+      `);
+      return;
+    }
+
+    if (trade.status === 'open' && isGuest) {
       root.innerHTML = `
         <div class="card">
           <div class="card-body">
             <h3 class="text-lg font-semibold mb-2">Join this trade</h3>
-            <p class="text-sm text-muted mb-4">Connect your Polygon wallet and join. The seller will then deposit USDC into escrow.</p>
+            <p class="text-sm text-muted mb-4">Connect your Polygon wallet and join. The seller will then deposit USDC into escrow. Once you join, the listing closes for everyone else.</p>
             ${onboardingResolved ? `
               <div class="kv-row mb-2"><span>Your wallet</span><span class="font-mono text-xs break-all">${account}</span></div>
               <button id="btn-join" class="btn btn-primary btn-block btn-lg">Join Trade</button>
@@ -422,9 +466,12 @@
     try {
       const acc = await LUMOS.connect();
       await LUMOS.switchToPolygon();
+      // Reject early if the connecting wallet is the seller's wallet.
+      if (trade.seller_wallet && acc.toLowerCase() === trade.seller_wallet.toLowerCase()) {
+        throw new Error('You cannot buy from yourself. Switch to a different wallet to join.');
+      }
       const updated = await LUMOS.api('POST', `/trades/${trade.id}/join`, { buyer_wallet: acc });
       localStorage.setItem(`role_${trade.id}`, 'buyer');
-      role = 'buyer';
       trade = updated;
       await refreshWalletState();
       render();

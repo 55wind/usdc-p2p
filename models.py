@@ -22,9 +22,8 @@ class ListingResponse(BaseModel):
     total_deposit: float
     price_per_usdc_krw: float
     total_krw: float
-    bank_name: str
-    bank_account: str
-    bank_holder: Optional[str] = None
+    # Bank info is intentionally NOT exposed via the listing endpoint —
+    # it's revealed only on the trade detail once funds are locked.
     nickname: Optional[str] = None
     message: Optional[str] = None
     status: str
