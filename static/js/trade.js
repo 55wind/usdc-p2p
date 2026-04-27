@@ -229,29 +229,53 @@
 
     // 4. USDC shortfall (seller, before deposit)
     if (need.usdc > 0 && balances.usdc < need.usdc) {
-      const link = LUMOS.buyUsdcLink(account, need.usdc);
       root.innerHTML = onboardingCard({
         title: 'Top up USDC on Polygon',
         body: `You need ${LUMOS.fmtUSDC(need.usdc)} USDC for this trade. Current: ${LUMOS.fmtUSDC(balances.usdc)} USDC.`,
-        actions: [{ label: `Buy ${LUMOS.fmtUSDC(need.usdc)} USDC on Polygon`, href: link, primary: true, target: '_blank' }],
-        footer: 'You also need a small amount of POL for gas fees.',
+        actions: buyActions('USDC', need.usdc, account),
+        footer: LUMOS.isInMetaMaskApp()
+          ? 'In-app: tap your account → Buy. Pick USDC on Polygon.'
+          : 'You also need a small amount of POL for gas fees.',
       });
       return;
     }
 
     // 5. POL shortfall
     if (need.pol > 0 && balances.pol < 0.05) {
-      const link = LUMOS.buyPolLink(account);
       root.innerHTML = onboardingCard({
         title: 'Get POL for gas',
         body: `POL is required to pay Polygon network fees. Current: ${balances.pol.toFixed(4)} POL.`,
-        actions: [{ label: 'Get POL for Gas', href: link, primary: true, target: '_blank' }],
-        footer: 'USDC is used for the trade, but POL is required for network fees.',
+        actions: buyActions('POL', 5, account),
+        footer: LUMOS.isInMetaMaskApp()
+          ? 'In-app: tap your account → Buy. Pick POL on Polygon.'
+          : 'USDC is used for the trade, but POL is required for network fees.',
       });
       return;
     }
 
     // All conditions met — no onboarding card needed.
+  }
+
+  // Build environment-aware "buy" CTAs.
+  // - In MetaMask mobile in-app browser: surface MetaMask's own buy deeplink (most reliable).
+  // - On desktop browser: link to MetaMask Portfolio buy aggregator.
+  // - Always include a fallback "Open in MetaMask app" deeplink and a CEX hint.
+  function buyActions(token, amount, wallet) {
+    const out = [];
+    if (LUMOS.isInMetaMaskApp()) {
+      // Inside MM mobile — open the in-app onramp directly.
+      out.push({ label: `Open MetaMask Buy`, href: 'metamask://buy', primary: true, target: '_self' });
+      out.push({ label: `Or open Portfolio`, href: 'https://portfolio.metamask.io/buy', primary: false, target: '_blank' });
+    } else if (LUMOS.isMobile()) {
+      // Mobile but not in MM app — point at MM mobile via deeplink, plus Portfolio fallback.
+      out.push({ label: `Open MetaMask Buy`, href: 'https://metamask.app.link/buy', primary: true, target: '_self' });
+      out.push({ label: `Buy in browser`, href: token === 'POL' ? LUMOS.buyPolLink(wallet) : LUMOS.buyUsdcLink(wallet, amount), primary: false, target: '_blank' });
+    } else {
+      // Desktop: Portfolio is the most direct path.
+      const link = token === 'POL' ? LUMOS.buyPolLink(wallet) : LUMOS.buyUsdcLink(wallet, amount);
+      out.push({ label: `Buy ${token === 'USDC' ? LUMOS.fmtUSDC(amount) + ' USDC' : 'POL'}`, href: link, primary: true, target: '_blank' });
+    }
+    return out;
   }
 
   function onboardingCard({ title, body, actions, footer }) {
