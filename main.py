@@ -3,7 +3,7 @@ import logging
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
@@ -64,6 +64,37 @@ async def trade_page(request: Request, trade_id: str):
 async def listing_page(request: Request, listing_id: str):
     # Listing detail and trade page are the same unified page; the JS resolves the trade id.
     return templates.TemplateResponse("trade.html", {**_ctx(request), "listing_id": listing_id})
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots(request: Request):
+    base = f"{request.url.scheme}://{request.url.netloc}"
+    return (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Allow: /marketplace\n"
+        "Allow: /sell\n"
+        "Disallow: /api/\n"
+        "Disallow: /trade/\n"
+        "Disallow: /listing/\n"
+        f"Sitemap: {base}/sitemap.xml\n"
+    )
+
+
+@app.get("/sitemap.xml")
+async def sitemap(request: Request):
+    base = f"{request.url.scheme}://{request.url.netloc}"
+    urls = [
+        ("/", "1.0"),
+        ("/marketplace", "0.9"),
+        ("/sell", "0.8"),
+    ]
+    items = "".join(
+        f"<url><loc>{base}{path}</loc><priority>{prio}</priority><changefreq>daily</changefreq></url>"
+        for path, prio in urls
+    )
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{items}</urlset>'
+    return Response(content=xml, media_type="application/xml")
 
 
 @app.websocket("/ws/{trade_id}")

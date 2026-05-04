@@ -107,3 +107,41 @@ async def get_listing_trade(listing_id: str, db=Depends(get_db)):
     if not trade_rows:
         raise HTTPException(404, "Trade not found for listing")
     return TradeResponse(**row_to_dict(trade_rows[0]))
+
+
+@router.delete("/{listing_id}")
+async def delete_listing(
+    listing_id: str,
+    wallet: str = Query(..., description="Seller wallet address (must match listing.seller_wallet)"),
+    db=Depends(get_db),
+):
+    """Cancel an open listing. Allowed only when the requester's wallet matches the
+    listing's seller_wallet AND no buyer has joined yet (status still 'open').
+
+    This is the simple wallet-address-comparison guard — no signature verification.
+    Sufficient for MVP since the bank info is never exposed on open listings and
+    a deleted listing only removes the seller's own marketplace post.
+    """
+    rows = await db.execute_fetchall("SELECT * FROM listings WHERE id = ?", (listing_id,))
+    if not rows:
+        raise HTTPException(404, "Listing not found")
+    listing = row_to_dict(rows[0])
+
+    if listing["seller_wallet"].lower() != wallet.lower():
+        raise HTTPException(403, "Only the seller can delete this listing")
+
+    if listing["status"] != "open":
+        raise HTTPException(409, "Listing is no longer open and cannot be deleted")
+
+    trade_rows = await db.execute_fetchall(
+        "SELECT * FROM trades WHERE id = ?", (listing["trade_id"],)
+    )
+    if trade_rows:
+        trade = row_to_dict(trade_rows[0])
+        if trade["status"] != "open" or trade.get("buyer_wallet"):
+            raise HTTPException(409, "A buyer has already joined; listing cannot be deleted")
+
+    await db.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
+    await db.execute("DELETE FROM trades WHERE id = ?", (listing["trade_id"],))
+    await db.commit()
+    return {"deleted": True, "listing_id": listing_id}

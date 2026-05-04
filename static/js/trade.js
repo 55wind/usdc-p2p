@@ -371,7 +371,9 @@
       root.innerHTML = wrap(`
         <div class="alert alert-info"><span>⏳</span><div><strong>Waiting for a buyer.</strong> Share <a href="${shareUrl()}" class="tx-link">this listing</a> or wait for someone from the marketplace.</div></div>
         <button class="btn btn-outline btn-sm mt-3" onclick="LumosTrade.copyLink()">Copy listing link</button>
+        <button id="btn-cancel-listing" class="btn btn-destructive btn-sm mt-3" style="margin-left:8px;">Cancel listing</button>
       `);
+      const btnCancel = $('btn-cancel-listing'); if (btnCancel) btnCancel.onclick = onCancelListing;
       return;
     }
 
@@ -477,6 +479,25 @@
       render();
     } catch (e) {
       alert(e.message);
+    }
+  }
+
+  async function onCancelListing() {
+    if (!trade.listing_id) { alert('No listing id on this trade.'); return; }
+    if (!confirm('Cancel this listing? Buyers will no longer see or be able to join it.')) return;
+    const btn = $('btn-cancel-listing');
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = 'Cancelling…'; }
+      const acc = await LUMOS.connect();
+      if (!trade.seller_wallet || acc.toLowerCase() !== trade.seller_wallet.toLowerCase()) {
+        throw new Error('Connect the seller wallet to cancel this listing.');
+      }
+      await LUMOS.api('DELETE', `/listings/${trade.listing_id}?wallet=${encodeURIComponent(acc)}`);
+      localStorage.removeItem(`role_${trade.id}`);
+      window.location.href = '/marketplace';
+    } catch (e) {
+      alert(e.message || 'Failed to cancel listing.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Cancel listing'; }
     }
   }
 

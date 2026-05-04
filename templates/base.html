@@ -1,10 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="{% block html_lang %}ko{% endblock %}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>{% block title %}Lumos — USDC P2P Marketplace{% endblock %}</title>
-  <meta name="description" content="Pay Korean services with USDC. A unified P2P marketplace + escrow on Polygon." />
+  <title>{% block title %}Lumos — USDC P2P Marketplace on Polygon{% endblock %}</title>
+  <meta name="description" content="{% block description %}Buy and sell USDC for KRW with on-chain escrow on Polygon. A unified P2P marketplace — sellers list, buyers join, funds settle the moment both sides confirm.{% endblock %}" />
+  <meta name="keywords" content="USDC, KRW, P2P, marketplace, escrow, Polygon, MetaMask, stablecoin, 한국, 거래" />
+  <meta name="robots" content="{% block robots %}index,follow{% endblock %}" />
+  <link rel="canonical" href="{% block canonical %}{{ request.url.scheme }}://{{ request.url.netloc }}{{ request.url.path }}{% endblock %}" />
+
+  {# Open Graph #}
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Lumos" />
+  <meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}" />
+  <meta property="og:description" content="{% block og_description %}{{ self.description() }}{% endblock %}" />
+  <meta property="og:url" content="{{ request.url.scheme }}://{{ request.url.netloc }}{{ request.url.path }}" />
+  <meta property="og:image" content="{{ request.url.scheme }}://{{ request.url.netloc }}/static/og-image.png" />
+  <meta property="og:locale" content="ko_KR" />
+
+  {# Twitter Card #}
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{% block twitter_title %}{{ self.title() }}{% endblock %}" />
+  <meta name="twitter:description" content="{% block twitter_description %}{{ self.description() }}{% endblock %}" />
+  <meta name="twitter:image" content="{{ request.url.scheme }}://{{ request.url.netloc }}/static/og-image.png" />
+
+  {% block google_site_verification %}{% endblock %}
+
   <link rel="stylesheet" href="/static/css/style.css" />
   {% block head %}{% endblock %}
 </head>
