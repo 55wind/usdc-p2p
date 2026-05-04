@@ -56,11 +56,87 @@
   <div id="listing-grid" class="listing-grid"></div>
 
   <div id="empty" class="empty-state hidden">
-    <p class="text-lg font-semibold text-muted">No active sell listings yet.</p>
-    <p class="text-sm text-muted mt-1">Be the first to create one.</p>
+    <p class="text-lg font-semibold">The marketplace is quiet right now.</p>
+    <p class="text-sm text-muted mt-1">No sellers are currently listing USDC. Check the guide below to learn how the marketplace works, or create your own sell order to be the first listing.</p>
     <a href="/sell" class="btn btn-primary mt-6">Create Sell Order</a>
   </div>
 </div>
+
+<section class="section" style="padding-top: 1rem;">
+  <div class="container">
+    <div class="text-center">
+      <h2>How Buying USDC Works on Lumos</h2>
+      <p class="section-eyebrow">Every trade is held by an on-chain escrow contract on Polygon. The seller cannot run off with your KRW, and you cannot lose USDC the seller already deposited.</p>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="step-num">01</div>
+        <h3 class="text-lg mt-2">Browse Open Listings</h3>
+        <p class="text-sm text-muted mt-2">Each card on this marketplace is a real seller offering a fixed USDC amount at a fixed KRW rate. Filter by amount, price, or sort by newest to find a match.</p>
+      </div>
+      <div class="feature-card">
+        <div class="step-num">02</div>
+        <h3 class="text-lg mt-2">Connect MetaMask & Join</h3>
+        <p class="text-sm text-muted mt-2">Click a listing, connect your Polygon wallet, and join the trade. The listing closes for everyone else the moment you join — it becomes a private 1-on-1 escrow.</p>
+      </div>
+      <div class="feature-card">
+        <div class="step-num">03</div>
+        <h3 class="text-lg mt-2">Wire KRW & Get USDC</h3>
+        <p class="text-sm text-muted mt-2">Once the seller deposits USDC into escrow, the bank info appears. Send the KRW, confirm on-chain, and the seller releases USDC straight to your wallet.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top: 1rem;">
+  <div class="container max-w-3xl">
+    <h2 class="text-center mb-6">Why Lumos Marketplace</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3 class="text-lg">Funds Held by a Smart Contract</h3>
+        <p class="text-sm text-muted mt-2">USDC is locked in a verified Polygon escrow contract — not by a custodian, not by Lumos. Once a buyer confirms KRW payment on-chain, the seller has 24 hours to release; otherwise the buyer can claim the USDC themselves.</p>
+      </div>
+      <div class="feature-card">
+        <h3 class="text-lg">No Hidden Fees</h3>
+        <p class="text-sm text-muted mt-2">A flat 0.5% protocol fee is paid by the seller. Buyers always receive the exact USDC amount listed — no slippage, no spread, no extra deductions on your side.</p>
+      </div>
+      <div class="feature-card">
+        <h3 class="text-lg">Native USDC on Polygon</h3>
+        <p class="text-sm text-muted mt-2">All trades use native USDC on the Polygon network — fast settlement, low gas, and the same USDC you can move to any other chain or exchange via standard bridges.</p>
+      </div>
+      <div class="feature-card">
+        <h3 class="text-lg">Built for Korean Buyers</h3>
+        <p class="text-sm text-muted mt-2">Pay sellers directly via Korean bank transfer. The price is quoted in KRW per USDC, so you always know exactly how much you're paying and how much USDC you're receiving.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top: 1rem; padding-bottom: 4rem;">
+  <div class="container max-w-3xl">
+    <h2 class="text-center mb-6">Frequently Asked Questions</h2>
+    <div class="feature-card mb-3">
+      <h3 class="text-lg">What happens if the seller doesn't deposit USDC?</h3>
+      <p class="text-sm text-muted mt-2">Each phase of a trade has a 20-minute timeout. If the seller fails to deposit USDC within that window after you join, the trade expires automatically and you owe nothing — no KRW has been sent, and no USDC has been locked.</p>
+    </div>
+    <div class="feature-card mb-3">
+      <h3 class="text-lg">What if I send the KRW but the seller never releases USDC?</h3>
+      <p class="text-sm text-muted mt-2">After confirming KRW payment on-chain, you have a 24-hour self-claim window. If the seller doesn't release within that period, you can claim the locked USDC directly from the escrow contract — no support ticket required.</p>
+    </div>
+    <div class="feature-card mb-3">
+      <h3 class="text-lg">Do I need to register or sign up?</h3>
+      <p class="text-sm text-muted mt-2">No accounts, no email, no KYC at the platform level. Your MetaMask wallet is your identity. Connect, join a trade, and you're done.</p>
+    </div>
+    <div class="feature-card mb-3">
+      <h3 class="text-lg">Why is the marketplace empty right now?</h3>
+      <p class="text-sm text-muted mt-2">Listings appear here only while a seller is actively waiting for a buyer. The moment a buyer joins a listing, it disappears from the marketplace — preventing two people from trying to claim the same USDC. If you don't see anything listed, it just means no seller is currently waiting.</p>
+    </div>
+    <div class="feature-card">
+      <h3 class="text-lg">Which network does Lumos use?</h3>
+      <p class="text-sm text-muted mt-2">Polygon mainnet only. Make sure your MetaMask is on Polygon and you have a small amount of POL for gas (typically less than ₩100 per transaction).</p>
+    </div>
+  </div>
+</section>
 {% endblock %}
 
 {% block scripts %}
