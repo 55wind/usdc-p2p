@@ -255,13 +255,17 @@
 
     // 4. USDC shortfall (seller, before deposit)
     if (need.usdc > 0 && balances.usdc < need.usdc) {
+      // Show the shortage (not the total) and pre-fill onramp with exactly what's missing.
+      // Round up to whole USDC so the onramp's min-amount and slippage don't leave us short.
+      const shortageExact = need.usdc - balances.usdc;
+      const buyAmount = Math.max(1, Math.ceil(shortageExact));
       root.innerHTML = onboardingCard({
-        title: 'Top up USDC on Polygon',
-        body: `You need ${LUMOS.fmtUSDC(need.usdc)} USDC for this trade. Current: ${LUMOS.fmtUSDC(balances.usdc)} USDC.`,
-        actions: buyActions('USDC', need.usdc, account),
+        title: `You need ${LUMOS.fmtUSDC(shortageExact)} more USDC`,
+        body: `This trade needs ${LUMOS.fmtUSDC(need.usdc)} USDC in escrow. You currently have ${LUMOS.fmtUSDC(balances.usdc)} USDC.`,
+        actions: buyActions('USDC', buyAmount, account),
         footer: LUMOS.isInMetaMaskApp()
-          ? 'In-app: tap your account → Buy. Pick USDC on Polygon.'
-          : 'You also need a small amount of POL for gas fees.',
+          ? 'In-app: tap your account → Buy. USDC on Polygon will be pre-selected.'
+          : 'The shortfall is pre-filled in the purchase window.',
       });
       return;
     }
@@ -378,9 +382,13 @@
     }
 
     if (trade.status === 'joined' && isSeller) {
+      // Only surface the deposit button when the wallet actually holds enough USDC.
+      // Otherwise the shortfall onboarding card above is the next step, and a
+      // clickable Deposit button would just fail on-chain.
+      const hasEnough = balances.usdc >= trade.total_deposit;
       root.innerHTML = wrap(`
         <div class="alert alert-info"><span>👤</span><div>The buyer has joined. Deposit <strong>${LUMOS.fmtUSDC(trade.total_deposit)} USDC</strong> (${LUMOS.fmtUSDC(trade.amount)} amount + ${LUMOS.fmtUSDC(trade.fee)} fee) into escrow.</div></div>
-        ${onboardingResolved ? `<button id="btn-deposit" class="btn btn-primary btn-block btn-lg mt-3">Deposit ${LUMOS.fmtUSDC(trade.total_deposit)} USDC</button>` : ''}
+        ${onboardingResolved && hasEnough ? `<button id="btn-deposit" class="btn btn-primary btn-block btn-lg mt-3">Deposit ${LUMOS.fmtUSDC(trade.total_deposit)} USDC</button>` : ''}
       `);
       const btn = $('btn-deposit'); if (btn) btn.onclick = onDeposit;
       return;

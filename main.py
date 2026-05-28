@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 from config import HOST, PORT, ESCROW_CONTRACT_ADDRESS, PLATFORM_WALLET_ADDRESS, PLATFORM_FEE_BPS
 from database import init_db
-from routers import trades, listings
+from routers import trades, listings, rate
 from services.escrow import register_ws, unregister_ws, run_timeout_checker
 from services.blockchain import run_escrow_monitor
 
@@ -22,6 +22,7 @@ templates = Jinja2Templates(directory="templates")
 
 app.include_router(listings.router)
 app.include_router(trades.router)
+app.include_router(rate.router)
 
 
 @app.on_event("startup")

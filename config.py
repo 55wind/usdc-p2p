@@ -18,6 +18,12 @@ PLATFORM_WALLET_ADDRESS = os.getenv("PLATFORM_WALLET_ADDRESS", "")
 # Fee — buyer always receives `amount`; seller deposits `amount + fee`
 PLATFORM_FEE_BPS = int(os.getenv("PLATFORM_FEE_BPS", "50"))  # 50 bps = 0.5%
 
+# Live rate — used to pre-fill the seller's suggested KRW price on /sell.
+# Served by /api/rate, which fetches the live USDC→KRW market price and falls
+# back to this constant when the upstream is unreachable.
+FALLBACK_USDC_KRW = float(os.getenv("FALLBACK_USDC_KRW", "1350"))
+RATE_CACHE_SECONDS = int(os.getenv("RATE_CACHE_SECONDS", "60"))
+
 # Trade settings
 PHASE_TIMEOUT_MINUTES = 20
 TIMEOUT_CHECK_INTERVAL_SECONDS = 30

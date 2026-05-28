@@ -5,13 +5,13 @@
 {% block content %}
 <div class="container max-w-2xl" style="padding-top: 2rem; padding-bottom: 4rem;">
   <h1 class="text-3xl font-display mb-2">Create Sell Order</h1>
-  <p class="text-muted mb-6">List your USDC for sale. The trade is created automatically — no separate escrow link needed.</p>
+  <p class="text-muted mb-6">Tell us how much KRW you want to receive. We'll handle the rest — the trade is created automatically with on-chain escrow.</p>
 
   <div class="alert alert-warn mb-6">
     <span aria-hidden="true">ℹ️</span>
     <div>
-      <strong>You will receive KRW.</strong> The buyer pays you in KRW; you deposit USDC into on-chain escrow. The contract releases USDC only after the buyer confirms payment.
-      Fee (0.5%) is added on top of the buyer-receives amount and paid by you on release.
+      <strong>You will receive KRW.</strong> The buyer pays you in KRW; the equivalent USDC is held in escrow until the buyer confirms payment.
+      Fee (0.5%) is added on top of the buyer-receives amount.
     </div>
   </div>
 
@@ -19,29 +19,56 @@
     <div class="card-header"><div class="card-title">Listing details</div></div>
     <div class="card-body">
       <form id="sell-form">
+        <!-- Wallet card: replaces the old free-text address field. -->
         <div class="form-group">
-          <label class="label" for="seller-wallet">Seller wallet (Polygon)</label>
-          <input class="input" id="seller-wallet" placeholder="0x..." required />
-          <div class="help-text">Your wallet must be on Polygon. POL is needed for gas.</div>
+          <label class="label">Your wallet</label>
+          <div id="wallet-card" class="card" style="background: var(--secondary); border: 1px solid var(--border);">
+            <div class="card-body" style="padding: 1rem;">
+              <div id="wallet-disconnected">
+                <p class="text-sm text-muted mb-3">Connect your wallet to publish a sell order. We'll switch you to Polygon automatically.</p>
+                <button type="button" id="btn-connect" class="btn btn-primary btn-block">Connect Wallet</button>
+                <div id="install-hint" class="help-text mt-2 hidden"></div>
+              </div>
+              <div id="wallet-wrong-network" class="hidden">
+                <div class="kv-row mb-2"><span>Wallet</span><span class="font-mono text-xs" id="wallet-addr-short">—</span></div>
+                <p class="text-sm text-muted mb-3">Your wallet is not on Polygon. Switch network to continue.</p>
+                <button type="button" id="btn-switch" class="btn btn-primary btn-block">Switch to Polygon</button>
+              </div>
+              <div id="wallet-connected" class="hidden">
+                <div class="row-between">
+                  <div class="row gap-2">
+                    <span class="badge badge-success">Polygon</span>
+                    <span class="font-mono text-sm" id="wallet-addr">—</span>
+                  </div>
+                  <button type="button" id="btn-change" class="btn btn-ghost btn-sm">Change</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="row gap-4" style="display:grid; grid-template-columns: 1fr 1fr;">
-          <div class="form-group">
-            <label class="label" for="amount">Buyer receives (USDC)</label>
-            <input class="input" id="amount" type="number" step="any" min="1" placeholder="100" required />
+        <div class="form-group">
+          <label class="label" for="krw-receive">How much KRW do you want to receive?</label>
+          <input class="input" id="krw-receive" type="number" step="any" min="1000" placeholder="100,000" required />
+          <div class="row gap-2 mt-2" style="flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm krw-preset" data-amt="100000">₩100,000</button>
+            <button type="button" class="btn btn-outline btn-sm krw-preset" data-amt="500000">₩500,000</button>
+            <button type="button" class="btn btn-outline btn-sm krw-preset" data-amt="1000000">₩1,000,000</button>
+            <button type="button" class="btn btn-outline btn-sm krw-preset" data-amt="5000000">₩5,000,000</button>
           </div>
-          <div class="form-group">
-            <label class="label" for="price">Price per USDC (₩)</label>
-            <input class="input" id="price" type="number" step="any" min="1" placeholder="1350" required />
-          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="label" for="price">Price per USDC (₩) <span class="text-muted text-xs" id="price-hint">(set your rate; loading live market…)</span></label>
+          <input class="input" id="price" type="number" step="any" min="1" placeholder="1350" value="1350" required />
         </div>
 
         <div id="calc-card" class="card mb-4 hidden" style="background: var(--secondary); border: none;">
           <div class="card-body" style="padding: 1rem;">
+            <div class="kv-row"><span>You receive</span><span class="font-bold" id="calc-krw">₩0</span></div>
             <div class="kv-row"><span>Buyer receives</span><span><strong id="calc-amount">0</strong> USDC</span></div>
             <div class="kv-row"><span>Platform fee (<span id="calc-fee-pct">0.5</span>%)</span><span><strong id="calc-fee">0</strong> USDC</span></div>
-            <div class="kv-row"><span>You deposit</span><span class="text-gradient-gold font-bold" id="calc-deposit">0 USDC</span></div>
-            <div class="kv-row"><span>You receive</span><span class="font-bold" id="calc-krw">₩0</span></div>
+            <div class="kv-row"><span>USDC needed in escrow</span><span class="text-gradient-gold font-bold" id="calc-deposit">0 USDC</span></div>
           </div>
         </div>
 
@@ -83,14 +110,7 @@
           <textarea class="textarea" id="message" placeholder="Anything the buyer should know..." maxlength="500"></textarea>
         </div>
 
-        <div class="alert alert-info mb-4">
-          <span aria-hidden="true">🔒</span>
-          <div>
-            Polygon-only. Make sure your wallet has a small amount of <strong>POL</strong> for gas before you publish.
-          </div>
-        </div>
-
-        <button type="submit" id="submit-btn" class="btn btn-primary btn-block btn-lg">Publish sell order</button>
+        <button type="submit" id="submit-btn" class="btn btn-primary btn-block btn-lg" disabled>Connect wallet to publish</button>
       </form>
     </div>
   </div>
